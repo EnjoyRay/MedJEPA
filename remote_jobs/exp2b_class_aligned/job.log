@@ -1,0 +1,400 @@
++ date
+Tue May  5 09:39:41 AM CST 2026
++ hostname
+node08
++ nvidia-smi
+Tue May  5 09:39:41 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 580.105.08             Driver Version: 580.105.08     CUDA Version: 13.0     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GeForce RTX 5090        Off |   00000000:01:00.0 Off |                  N/A |
+|  0%   31C    P8              5W /  600W |      15MiB /  32607MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+|   1  NVIDIA GeForce RTX 5090        Off |   00000000:84:00.0 Off |                  N/A |
+| 43%   62C    P1            402W /  600W |   18815MiB /  32607MiB |    100%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+|   2  NVIDIA GeForce RTX 5090        Off |   00000000:85:00.0 Off |                  N/A |
+| 51%   66C    P1            427W /  600W |   18815MiB /  32607MiB |    100%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+|   3  NVIDIA GeForce RTX 5090        Off |   00000000:C1:00.0 Off |                  N/A |
+| 47%   63C    P1            401W /  600W |   18815MiB /  32607MiB |    100%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|    0   N/A  N/A            2822      G   /usr/libexec/Xorg                         4MiB |
+|    1   N/A  N/A            2822      G   /usr/libexec/Xorg                         4MiB |
+|    1   N/A  N/A          992263      C   ./5_300_001T                          18792MiB |
+|    2   N/A  N/A            2822      G   /usr/libexec/Xorg                         4MiB |
+|    2   N/A  N/A          992545      C   ./5_300_010T                          18792MiB |
+|    3   N/A  N/A            2822      G   /usr/libexec/Xorg                         4MiB |
+|    3   N/A  N/A          992628      C   ./5_300_025T                          18792MiB |
++-----------------------------------------------------------------------------------------+
++ cd /home/jchwang/ray/JEPA
++ . /home/jchwang/ray/venvs/torch-cu128/bin/activate
+++ deactivate nondestructive
+++ '[' -n '' ']'
+++ '[' -n '' ']'
+++ '[' -n /bin/bash -o -n '' ']'
+++ hash -r
+++ '[' -n '' ']'
+++ unset VIRTUAL_ENV
+++ '[' '!' nondestructive = nondestructive ']'
+++ VIRTUAL_ENV=/home/jchwang/ray/venvs/torch-cu128
+++ export VIRTUAL_ENV
+++ _OLD_VIRTUAL_PATH=/home/jchwang/.local/bin:/home/jchwang/bin:/usr/local/cuda-12.8/bin:/opt/software/torque-6.1/sbin:/opt/software/torque-6.1/bin:/opt/intel-2020/compilers_and_libraries_2020.0.163/linux/bin/intel64:/opt/intel-2020/compilers_and_libraries_2020.0.163/linux/bin:/opt/intel-2020/compilers_and_libraries_2020.0.163/linux/mpi/intel64/libfabric/bin:/opt/intel-2020/compilers_and_libraries_2020.0.163/linux/mpi/intel64/bin:/opt/intel-2020/compilers_and_libraries_2020.0.163/linux/bin/intel64:/opt/intel-2020/compilers_and_libraries_2020.0.163/linux/bin:/opt/intel-2020/compilers_and_libraries_2020.0.163/linux/mpi/intel64/libfabric/bin:/opt/intel-2020/compilers_and_libraries_2020.0.163/linux/mpi/intel64/bin:/opt/intel-2020/compilers_and_libraries_2020.0.163/linux/bin/intel64:/opt/intel-2020/compilers_and_libraries_2020.0.163/linux/bin:/opt/intel-2020/compilers_and_libraries_2020.0.163/linux/mpi/intel64/libfabric/bin:/opt/intel-2020/compilers_and_libraries_2020.0.163/linux/mpi/intel64/bin:/opt/intel-2020/debugger_2020/gdb/intel64/bin:/opt/software/torque-6.1/bin:/opt/software/torque-6.1/sbin:/usr/share/Modules/bin:/bin:/usr/bin:/usr/local/sbin:/usr/sbin
+++ PATH=/home/jchwang/ray/venvs/torch-cu128/bin:/home/jchwang/.local/bin:/home/jchwang/bin:/usr/local/cuda-12.8/bin:/opt/software/torque-6.1/sbin:/opt/software/torque-6.1/bin:/opt/intel-2020/compilers_and_libraries_2020.0.163/linux/bin/intel64:/opt/intel-2020/compilers_and_libraries_2020.0.163/linux/bin:/opt/intel-2020/compilers_and_libraries_2020.0.163/linux/mpi/intel64/libfabric/bin:/opt/intel-2020/compilers_and_libraries_2020.0.163/linux/mpi/intel64/bin:/opt/intel-2020/compilers_and_libraries_2020.0.163/linux/bin/intel64:/opt/intel-2020/compilers_and_libraries_2020.0.163/linux/bin:/opt/intel-2020/compilers_and_libraries_2020.0.163/linux/mpi/intel64/libfabric/bin:/opt/intel-2020/compilers_and_libraries_2020.0.163/linux/mpi/intel64/bin:/opt/intel-2020/compilers_and_libraries_2020.0.163/linux/bin/intel64:/opt/intel-2020/compilers_and_libraries_2020.0.163/linux/bin:/opt/intel-2020/compilers_and_libraries_2020.0.163/linux/mpi/intel64/libfabric/bin:/opt/intel-2020/compilers_and_libraries_2020.0.163/linux/mpi/intel64/bin:/opt/intel-2020/debugger_2020/gdb/intel64/bin:/opt/software/torque-6.1/bin:/opt/software/torque-6.1/sbin:/usr/share/Modules/bin:/bin:/usr/bin:/usr/local/sbin:/usr/sbin
+++ export PATH
+++ '[' -n '' ']'
+++ '[' -z '' ']'
+++ _OLD_VIRTUAL_PS1=
+++ PS1='(torch-cu128) '
+++ export PS1
+++ '[' -n /bin/bash -o -n '' ']'
+++ hash -r
++ export PYTHONUNBUFFERED=1
++ PYTHONUNBUFFERED=1
++ export CUDA_VISIBLE_DEVICES=0
++ CUDA_VISIBLE_DEVICES=0
++ export PYTHONPATH=/home/jchwang/ray/JEPA:/home/jchwang/ray/zhaoyi/medical-i-jepa:
++ PYTHONPATH=/home/jchwang/ray/JEPA:/home/jchwang/ray/zhaoyi/medical-i-jepa:
++ DATA=/home/jchwang/ray/data/VinBigData_ChestXray
++ OUT=/home/jchwang/ray/JEPA/results
++ W95=/home/jchwang/ray/pretrained/ijepa/jepa-ep95.pth.tar
++ W201=/home/jchwang/ray/pretrained/ijepa/jepa-ep201.pth.tar
++ MAE97=/home/jchwang/ray/outputs/mae_huge_mimic_97ep_imagenet_init_256_bs32/checkpoint-96.pth
++ PROBE95=/home/jchwang/ray/JEPA/results/exp1_ijepa_vith_ep95_fixedsplit/probe.pth
++ PROBE201=/home/jchwang/ray/JEPA/results/exp1_ijepa_vith_ep201_fixedsplit/probe.pth
++ PROBEMAE97=/home/jchwang/ray/JEPA/results/exp1_mae_huge_mimic_97ep_fixedsplit/probe.pth
++ python -m py_compile experiments/exp2_lesion_sensitivity/occlusion.py experiments/exp2_lesion_sensitivity/evaluate_class_aligned.py experiments/exp2_lesion_sensitivity/run_exp2_class_aligned.py experiments/exp2_lesion_sensitivity/analyze_class_aligned.py experiments/exp2_lesion_sensitivity/make_class_aligned_cases.py scripts/build_class_aligned_figures.py
++ python -
+[VinDr-CXR] Loaded image metadata from /home/jchwang/ray/data/VinBigData_ChestXray/images_1024/train_meta.csv
+[VinDr-CXR] Using deterministic train split: 12000 images (excluded 3000 held-out images)
+[VinDr-CXR] Loaded image metadata from /home/jchwang/ray/data/VinBigData_ChestXray/images_1024/train_meta.csv
+[VinDr-CXR] No annotation CSV for split='test', falling back to train.csv (will sample subset)
+[VinDr-CXR] Using image dir: /home/jchwang/ray/data/VinBigData_ChestXray/images_1024/train
+[VinDr-CXR] Using deterministic held-out split: 3000 images from train.csv as test set
+SPLIT_CHECK train 12000 test 3000 overlap 0
++ run_exp2b DRY-I-JEPA-H/201 ijepa /home/jchwang/ray/pretrained/ijepa/jepa-ep201.pth.tar /home/jchwang/ray/JEPA/results/exp1_ijepa_vith_ep201_fixedsplit/probe.pth /home/jchwang/ray/JEPA/results/exp2b_dryrun_ijepa_vith_ep201 4 8 32
++ local model_name=DRY-I-JEPA-H/201
++ local model_arg=ijepa
++ local weights=/home/jchwang/ray/pretrained/ijepa/jepa-ep201.pth.tar
++ local probe_path=/home/jchwang/ray/JEPA/results/exp1_ijepa_vith_ep201_fixedsplit/probe.pth
++ local out_dir=/home/jchwang/ray/JEPA/results/exp2b_dryrun_ijepa_vith_ep201
++ local batch_size=4
++ local enc_batch=8
++ local max_samples=32
++ echo '=== RUN EXP2B DRY-I-JEPA-H/201 ==='
+=== RUN EXP2B DRY-I-JEPA-H/201 ===
++ echo weights=/home/jchwang/ray/pretrained/ijepa/jepa-ep201.pth.tar
+weights=/home/jchwang/ray/pretrained/ijepa/jepa-ep201.pth.tar
++ echo probe=/home/jchwang/ray/JEPA/results/exp1_ijepa_vith_ep201_fixedsplit/probe.pth
+probe=/home/jchwang/ray/JEPA/results/exp1_ijepa_vith_ep201_fixedsplit/probe.pth
++ test -f /home/jchwang/ray/pretrained/ijepa/jepa-ep201.pth.tar
++ rm -rf /home/jchwang/ray/JEPA/results/exp2b_dryrun_ijepa_vith_ep201
++ mkdir -p /home/jchwang/ray/JEPA/results/exp2b_dryrun_ijepa_vith_ep201
++ probe_args=()
++ local probe_args
++ '[' -n /home/jchwang/ray/JEPA/results/exp1_ijepa_vith_ep201_fixedsplit/probe.pth ']'
++ test -f /home/jchwang/ray/JEPA/results/exp1_ijepa_vith_ep201_fixedsplit/probe.pth
++ probe_args=(--probe_path "$probe_path")
++ max_args=()
++ local max_args
++ '[' -n 32 ']'
++ max_args=(--max_samples "$max_samples")
++ python experiments/exp2_lesion_sensitivity/run_exp2_class_aligned.py --model ijepa --weights /home/jchwang/ray/pretrained/ijepa/jepa-ep201.pth.tar --data_dir /home/jchwang/ray/data/VinBigData_ChestXray --probe_path /home/jchwang/ray/JEPA/results/exp1_ijepa_vith_ep201_fixedsplit/probe.pth --output_dir /home/jchwang/ray/JEPA/results/exp2b_dryrun_ijepa_vith_ep201 --batch_size 4 --num_workers 8 --img_size 224 --in_chans 1 --num_controls 5 --control_strategy matched_random --fill_mode neutral --encoder_batch_size 8 --max_samples 32
+Device: cuda
+
+=== Loading IJEPA encoder ===
+[I-JEPA] Detected ViT-Huge/14 (dim=1280)
+[I-JEPA] Loaded weights from /home/jchwang/ray/pretrained/ijepa/jepa-ep201.pth.tar: <All keys matched successfully>
+
+=== Building data loaders ===
+[VinDr-CXR] Loaded image metadata from /home/jchwang/ray/data/VinBigData_ChestXray/images_1024/train_meta.csv
+[VinDr-CXR] Using deterministic train split: 12000 images (excluded 3000 held-out images)
+[VinDr-CXR] train split: 12000 images, 3000 batches
+[VinDr-CXR] Loaded image metadata from /home/jchwang/ray/data/VinBigData_ChestXray/images_1024/train_meta.csv
+[VinDr-CXR] No annotation CSV for split='test', falling back to train.csv (will sample subset)
+[VinDr-CXR] Using image dir: /home/jchwang/ray/data/VinBigData_ChestXray/images_1024/train
+[VinDr-CXR] Using deterministic held-out split: 3000 images from train.csv as test set
+[VinDr-CXR] test split: 3000 images, 750 batches
+
+=== Loading pre-trained probe from /home/jchwang/ray/JEPA/results/exp1_ijepa_vith_ep201_fixedsplit/probe.pth ===
+
+=== Evaluating class-aligned lesion sensitivity ===
+
+=== Saving class-aligned results ===
+Saved class-aligned rows to /home/jchwang/ray/JEPA/results/exp2b_dryrun_ijepa_vith_ep201/class_aligned_per_sample.csv
+
+Done. Results saved to /home/jchwang/ray/JEPA/results/exp2b_dryrun_ijepa_vith_ep201
++ python experiments/exp2_lesion_sensitivity/analyze_class_aligned.py --exp2_dir /home/jchwang/ray/JEPA/results/exp2b_dryrun_ijepa_vith_ep201 --output_dir /home/jchwang/ray/JEPA/results/exp2b_dryrun_ijepa_vith_ep201/class_aligned_analysis --model_name DRY-I-JEPA-H/201
+/home/jchwang/ray/JEPA/experiments/exp2_lesion_sensitivity/analyze_class_aligned.py:40: FutureWarning: The default of observed=False is deprecated and will be changed to True in a future version of pandas. Pass observed=False to retain current behavior or observed=True to adopt the future default and silence this warning.
+  for group, sub in df.groupby(group_col, dropna=False):
+Class-aligned analysis written to /home/jchwang/ray/JEPA/results/exp2b_dryrun_ijepa_vith_ep201/class_aligned_analysis
++ python experiments/exp2_lesion_sensitivity/make_class_aligned_cases.py --exp2_dir /home/jchwang/ray/JEPA/results/exp2b_dryrun_ijepa_vith_ep201 --data_dir /home/jchwang/ray/data/VinBigData_ChestXray --output_dir /home/jchwang/ray/JEPA/results/exp2b_dryrun_ijepa_vith_ep201/class_aligned_cases --max_cases 9 --img_size 224 --in_chans 1
+[VinDr-CXR] Loaded image metadata from /home/jchwang/ray/data/VinBigData_ChestXray/images_1024/train_meta.csv
+[VinDr-CXR] No annotation CSV for split='test', falling back to train.csv (will sample subset)
+[VinDr-CXR] Using image dir: /home/jchwang/ray/data/VinBigData_ChestXray/images_1024/train
+[VinDr-CXR] Using deterministic held-out split: 3000 images from train.csv as test set
+Saved 9 class-aligned case figures to /home/jchwang/ray/JEPA/results/exp2b_dryrun_ijepa_vith_ep201/class_aligned_cases
++ run_exp2b I-JEPA-H/95 ijepa /home/jchwang/ray/pretrained/ijepa/jepa-ep95.pth.tar /home/jchwang/ray/JEPA/results/exp1_ijepa_vith_ep95_fixedsplit/probe.pth /home/jchwang/ray/JEPA/results/exp2b_class_aligned_ijepa_vith_ep95_fixedsplit 8 8 ''
++ local model_name=I-JEPA-H/95
++ local model_arg=ijepa
++ local weights=/home/jchwang/ray/pretrained/ijepa/jepa-ep95.pth.tar
++ local probe_path=/home/jchwang/ray/JEPA/results/exp1_ijepa_vith_ep95_fixedsplit/probe.pth
++ local out_dir=/home/jchwang/ray/JEPA/results/exp2b_class_aligned_ijepa_vith_ep95_fixedsplit
++ local batch_size=8
++ local enc_batch=8
++ local max_samples=
++ echo '=== RUN EXP2B I-JEPA-H/95 ==='
+=== RUN EXP2B I-JEPA-H/95 ===
++ echo weights=/home/jchwang/ray/pretrained/ijepa/jepa-ep95.pth.tar
+weights=/home/jchwang/ray/pretrained/ijepa/jepa-ep95.pth.tar
++ echo probe=/home/jchwang/ray/JEPA/results/exp1_ijepa_vith_ep95_fixedsplit/probe.pth
+probe=/home/jchwang/ray/JEPA/results/exp1_ijepa_vith_ep95_fixedsplit/probe.pth
++ test -f /home/jchwang/ray/pretrained/ijepa/jepa-ep95.pth.tar
++ rm -rf /home/jchwang/ray/JEPA/results/exp2b_class_aligned_ijepa_vith_ep95_fixedsplit
++ mkdir -p /home/jchwang/ray/JEPA/results/exp2b_class_aligned_ijepa_vith_ep95_fixedsplit
++ probe_args=()
++ local probe_args
++ '[' -n /home/jchwang/ray/JEPA/results/exp1_ijepa_vith_ep95_fixedsplit/probe.pth ']'
++ test -f /home/jchwang/ray/JEPA/results/exp1_ijepa_vith_ep95_fixedsplit/probe.pth
++ probe_args=(--probe_path "$probe_path")
++ max_args=()
++ local max_args
++ '[' -n '' ']'
++ python experiments/exp2_lesion_sensitivity/run_exp2_class_aligned.py --model ijepa --weights /home/jchwang/ray/pretrained/ijepa/jepa-ep95.pth.tar --data_dir /home/jchwang/ray/data/VinBigData_ChestXray --probe_path /home/jchwang/ray/JEPA/results/exp1_ijepa_vith_ep95_fixedsplit/probe.pth --output_dir /home/jchwang/ray/JEPA/results/exp2b_class_aligned_ijepa_vith_ep95_fixedsplit --batch_size 8 --num_workers 8 --img_size 224 --in_chans 1 --num_controls 5 --control_strategy matched_random --fill_mode neutral --encoder_batch_size 8
+Device: cuda
+
+=== Loading IJEPA encoder ===
+[I-JEPA] Detected ViT-Huge/14 (dim=1280)
+[I-JEPA] Loaded weights from /home/jchwang/ray/pretrained/ijepa/jepa-ep95.pth.tar: <All keys matched successfully>
+
+=== Building data loaders ===
+[VinDr-CXR] Loaded image metadata from /home/jchwang/ray/data/VinBigData_ChestXray/images_1024/train_meta.csv
+[VinDr-CXR] Using deterministic train split: 12000 images (excluded 3000 held-out images)
+[VinDr-CXR] train split: 12000 images, 1500 batches
+[VinDr-CXR] Loaded image metadata from /home/jchwang/ray/data/VinBigData_ChestXray/images_1024/train_meta.csv
+[VinDr-CXR] No annotation CSV for split='test', falling back to train.csv (will sample subset)
+[VinDr-CXR] Using image dir: /home/jchwang/ray/data/VinBigData_ChestXray/images_1024/train
+[VinDr-CXR] Using deterministic held-out split: 3000 images from train.csv as test set
+[VinDr-CXR] test split: 3000 images, 375 batches
+
+=== Loading pre-trained probe from /home/jchwang/ray/JEPA/results/exp1_ijepa_vith_ep95_fixedsplit/probe.pth ===
+
+=== Evaluating class-aligned lesion sensitivity ===
+  batch 20/375: class-aligned rows=138
+  batch 40/375: class-aligned rows=286
+  batch 60/375: class-aligned rows=431
+  batch 80/375: class-aligned rows=561
+  batch 100/375: class-aligned rows=736
+  batch 120/375: class-aligned rows=857
+  batch 160/375: class-aligned rows=1170
+  batch 180/375: class-aligned rows=1316
+  batch 200/375: class-aligned rows=1482
+  batch 220/375: class-aligned rows=1633
+  batch 240/375: class-aligned rows=1792
+  batch 260/375: class-aligned rows=1980
+  batch 280/375: class-aligned rows=2154
+  batch 300/375: class-aligned rows=2292
+  batch 320/375: class-aligned rows=2478
+  batch 340/375: class-aligned rows=2628
+  batch 360/375: class-aligned rows=2769
+
+=== Saving class-aligned results ===
+Saved class-aligned rows to /home/jchwang/ray/JEPA/results/exp2b_class_aligned_ijepa_vith_ep95_fixedsplit/class_aligned_per_sample.csv
+
+Done. Results saved to /home/jchwang/ray/JEPA/results/exp2b_class_aligned_ijepa_vith_ep95_fixedsplit
++ python experiments/exp2_lesion_sensitivity/analyze_class_aligned.py --exp2_dir /home/jchwang/ray/JEPA/results/exp2b_class_aligned_ijepa_vith_ep95_fixedsplit --output_dir /home/jchwang/ray/JEPA/results/exp2b_class_aligned_ijepa_vith_ep95_fixedsplit/class_aligned_analysis --model_name I-JEPA-H/95
+/home/jchwang/ray/JEPA/experiments/exp2_lesion_sensitivity/analyze_class_aligned.py:40: FutureWarning: The default of observed=False is deprecated and will be changed to True in a future version of pandas. Pass observed=False to retain current behavior or observed=True to adopt the future default and silence this warning.
+  for group, sub in df.groupby(group_col, dropna=False):
+Class-aligned analysis written to /home/jchwang/ray/JEPA/results/exp2b_class_aligned_ijepa_vith_ep95_fixedsplit/class_aligned_analysis
++ python experiments/exp2_lesion_sensitivity/make_class_aligned_cases.py --exp2_dir /home/jchwang/ray/JEPA/results/exp2b_class_aligned_ijepa_vith_ep95_fixedsplit --data_dir /home/jchwang/ray/data/VinBigData_ChestXray --output_dir /home/jchwang/ray/JEPA/results/exp2b_class_aligned_ijepa_vith_ep95_fixedsplit/class_aligned_cases --max_cases 9 --img_size 224 --in_chans 1
+[VinDr-CXR] Loaded image metadata from /home/jchwang/ray/data/VinBigData_ChestXray/images_1024/train_meta.csv
+[VinDr-CXR] No annotation CSV for split='test', falling back to train.csv (will sample subset)
+[VinDr-CXR] Using image dir: /home/jchwang/ray/data/VinBigData_ChestXray/images_1024/train
+[VinDr-CXR] Using deterministic held-out split: 3000 images from train.csv as test set
+Saved 9 class-aligned case figures to /home/jchwang/ray/JEPA/results/exp2b_class_aligned_ijepa_vith_ep95_fixedsplit/class_aligned_cases
++ run_exp2b I-JEPA-H/201 ijepa /home/jchwang/ray/pretrained/ijepa/jepa-ep201.pth.tar /home/jchwang/ray/JEPA/results/exp1_ijepa_vith_ep201_fixedsplit/probe.pth /home/jchwang/ray/JEPA/results/exp2b_class_aligned_ijepa_vith_ep201_fixedsplit 8 8 ''
++ local model_name=I-JEPA-H/201
++ local model_arg=ijepa
++ local weights=/home/jchwang/ray/pretrained/ijepa/jepa-ep201.pth.tar
++ local probe_path=/home/jchwang/ray/JEPA/results/exp1_ijepa_vith_ep201_fixedsplit/probe.pth
++ local out_dir=/home/jchwang/ray/JEPA/results/exp2b_class_aligned_ijepa_vith_ep201_fixedsplit
++ local batch_size=8
++ local enc_batch=8
++ local max_samples=
++ echo '=== RUN EXP2B I-JEPA-H/201 ==='
+=== RUN EXP2B I-JEPA-H/201 ===
++ echo weights=/home/jchwang/ray/pretrained/ijepa/jepa-ep201.pth.tar
+weights=/home/jchwang/ray/pretrained/ijepa/jepa-ep201.pth.tar
++ echo probe=/home/jchwang/ray/JEPA/results/exp1_ijepa_vith_ep201_fixedsplit/probe.pth
+probe=/home/jchwang/ray/JEPA/results/exp1_ijepa_vith_ep201_fixedsplit/probe.pth
++ test -f /home/jchwang/ray/pretrained/ijepa/jepa-ep201.pth.tar
++ rm -rf /home/jchwang/ray/JEPA/results/exp2b_class_aligned_ijepa_vith_ep201_fixedsplit
++ mkdir -p /home/jchwang/ray/JEPA/results/exp2b_class_aligned_ijepa_vith_ep201_fixedsplit
++ probe_args=()
++ local probe_args
++ '[' -n /home/jchwang/ray/JEPA/results/exp1_ijepa_vith_ep201_fixedsplit/probe.pth ']'
++ test -f /home/jchwang/ray/JEPA/results/exp1_ijepa_vith_ep201_fixedsplit/probe.pth
++ probe_args=(--probe_path "$probe_path")
++ max_args=()
++ local max_args
++ '[' -n '' ']'
++ python experiments/exp2_lesion_sensitivity/run_exp2_class_aligned.py --model ijepa --weights /home/jchwang/ray/pretrained/ijepa/jepa-ep201.pth.tar --data_dir /home/jchwang/ray/data/VinBigData_ChestXray --probe_path /home/jchwang/ray/JEPA/results/exp1_ijepa_vith_ep201_fixedsplit/probe.pth --output_dir /home/jchwang/ray/JEPA/results/exp2b_class_aligned_ijepa_vith_ep201_fixedsplit --batch_size 8 --num_workers 8 --img_size 224 --in_chans 1 --num_controls 5 --control_strategy matched_random --fill_mode neutral --encoder_batch_size 8
+Device: cuda
+
+=== Loading IJEPA encoder ===
+[I-JEPA] Detected ViT-Huge/14 (dim=1280)
+[I-JEPA] Loaded weights from /home/jchwang/ray/pretrained/ijepa/jepa-ep201.pth.tar: <All keys matched successfully>
+
+=== Building data loaders ===
+[VinDr-CXR] Loaded image metadata from /home/jchwang/ray/data/VinBigData_ChestXray/images_1024/train_meta.csv
+[VinDr-CXR] Using deterministic train split: 12000 images (excluded 3000 held-out images)
+[VinDr-CXR] train split: 12000 images, 1500 batches
+[VinDr-CXR] Loaded image metadata from /home/jchwang/ray/data/VinBigData_ChestXray/images_1024/train_meta.csv
+[VinDr-CXR] No annotation CSV for split='test', falling back to train.csv (will sample subset)
+[VinDr-CXR] Using image dir: /home/jchwang/ray/data/VinBigData_ChestXray/images_1024/train
+[VinDr-CXR] Using deterministic held-out split: 3000 images from train.csv as test set
+[VinDr-CXR] test split: 3000 images, 375 batches
+
+=== Loading pre-trained probe from /home/jchwang/ray/JEPA/results/exp1_ijepa_vith_ep201_fixedsplit/probe.pth ===
+
+=== Evaluating class-aligned lesion sensitivity ===
+  batch 20/375: class-aligned rows=138
+  batch 40/375: class-aligned rows=286
+  batch 60/375: class-aligned rows=431
+  batch 80/375: class-aligned rows=561
+  batch 100/375: class-aligned rows=736
+  batch 120/375: class-aligned rows=857
+  batch 160/375: class-aligned rows=1170
+  batch 180/375: class-aligned rows=1316
+  batch 200/375: class-aligned rows=1482
+  batch 220/375: class-aligned rows=1633
+  batch 240/375: class-aligned rows=1792
+  batch 260/375: class-aligned rows=1980
+  batch 280/375: class-aligned rows=2154
+  batch 300/375: class-aligned rows=2292
+  batch 320/375: class-aligned rows=2478
+  batch 340/375: class-aligned rows=2628
+  batch 360/375: class-aligned rows=2769
+
+=== Saving class-aligned results ===
+Saved class-aligned rows to /home/jchwang/ray/JEPA/results/exp2b_class_aligned_ijepa_vith_ep201_fixedsplit/class_aligned_per_sample.csv
+
+Done. Results saved to /home/jchwang/ray/JEPA/results/exp2b_class_aligned_ijepa_vith_ep201_fixedsplit
++ python experiments/exp2_lesion_sensitivity/analyze_class_aligned.py --exp2_dir /home/jchwang/ray/JEPA/results/exp2b_class_aligned_ijepa_vith_ep201_fixedsplit --output_dir /home/jchwang/ray/JEPA/results/exp2b_class_aligned_ijepa_vith_ep201_fixedsplit/class_aligned_analysis --model_name I-JEPA-H/201
+/home/jchwang/ray/JEPA/experiments/exp2_lesion_sensitivity/analyze_class_aligned.py:40: FutureWarning: The default of observed=False is deprecated and will be changed to True in a future version of pandas. Pass observed=False to retain current behavior or observed=True to adopt the future default and silence this warning.
+  for group, sub in df.groupby(group_col, dropna=False):
+Class-aligned analysis written to /home/jchwang/ray/JEPA/results/exp2b_class_aligned_ijepa_vith_ep201_fixedsplit/class_aligned_analysis
++ python experiments/exp2_lesion_sensitivity/make_class_aligned_cases.py --exp2_dir /home/jchwang/ray/JEPA/results/exp2b_class_aligned_ijepa_vith_ep201_fixedsplit --data_dir /home/jchwang/ray/data/VinBigData_ChestXray --output_dir /home/jchwang/ray/JEPA/results/exp2b_class_aligned_ijepa_vith_ep201_fixedsplit/class_aligned_cases --max_cases 9 --img_size 224 --in_chans 1
+[VinDr-CXR] Loaded image metadata from /home/jchwang/ray/data/VinBigData_ChestXray/images_1024/train_meta.csv
+[VinDr-CXR] No annotation CSV for split='test', falling back to train.csv (will sample subset)
+[VinDr-CXR] Using image dir: /home/jchwang/ray/data/VinBigData_ChestXray/images_1024/train
+[VinDr-CXR] Using deterministic held-out split: 3000 images from train.csv as test set
+Saved 9 class-aligned case figures to /home/jchwang/ray/JEPA/results/exp2b_class_aligned_ijepa_vith_ep201_fixedsplit/class_aligned_cases
++ run_exp2b MAE-H/97 mae /home/jchwang/ray/outputs/mae_huge_mimic_97ep_imagenet_init_256_bs32/checkpoint-96.pth /home/jchwang/ray/JEPA/results/exp1_mae_huge_mimic_97ep_fixedsplit/probe.pth /home/jchwang/ray/JEPA/results/exp2b_class_aligned_mae_huge_mimic_97ep_fixedsplit 8 8 ''
++ local model_name=MAE-H/97
++ local model_arg=mae
++ local weights=/home/jchwang/ray/outputs/mae_huge_mimic_97ep_imagenet_init_256_bs32/checkpoint-96.pth
++ local probe_path=/home/jchwang/ray/JEPA/results/exp1_mae_huge_mimic_97ep_fixedsplit/probe.pth
++ local out_dir=/home/jchwang/ray/JEPA/results/exp2b_class_aligned_mae_huge_mimic_97ep_fixedsplit
++ local batch_size=8
++ local enc_batch=8
++ local max_samples=
++ echo '=== RUN EXP2B MAE-H/97 ==='
+=== RUN EXP2B MAE-H/97 ===
++ echo weights=/home/jchwang/ray/outputs/mae_huge_mimic_97ep_imagenet_init_256_bs32/checkpoint-96.pth
+weights=/home/jchwang/ray/outputs/mae_huge_mimic_97ep_imagenet_init_256_bs32/checkpoint-96.pth
++ echo probe=/home/jchwang/ray/JEPA/results/exp1_mae_huge_mimic_97ep_fixedsplit/probe.pth
+probe=/home/jchwang/ray/JEPA/results/exp1_mae_huge_mimic_97ep_fixedsplit/probe.pth
++ test -f /home/jchwang/ray/outputs/mae_huge_mimic_97ep_imagenet_init_256_bs32/checkpoint-96.pth
++ rm -rf /home/jchwang/ray/JEPA/results/exp2b_class_aligned_mae_huge_mimic_97ep_fixedsplit
++ mkdir -p /home/jchwang/ray/JEPA/results/exp2b_class_aligned_mae_huge_mimic_97ep_fixedsplit
++ probe_args=()
++ local probe_args
++ '[' -n /home/jchwang/ray/JEPA/results/exp1_mae_huge_mimic_97ep_fixedsplit/probe.pth ']'
++ test -f /home/jchwang/ray/JEPA/results/exp1_mae_huge_mimic_97ep_fixedsplit/probe.pth
++ probe_args=(--probe_path "$probe_path")
++ max_args=()
++ local max_args
++ '[' -n '' ']'
++ python experiments/exp2_lesion_sensitivity/run_exp2_class_aligned.py --model mae --weights /home/jchwang/ray/outputs/mae_huge_mimic_97ep_imagenet_init_256_bs32/checkpoint-96.pth --data_dir /home/jchwang/ray/data/VinBigData_ChestXray --probe_path /home/jchwang/ray/JEPA/results/exp1_mae_huge_mimic_97ep_fixedsplit/probe.pth --output_dir /home/jchwang/ray/JEPA/results/exp2b_class_aligned_mae_huge_mimic_97ep_fixedsplit --batch_size 8 --num_workers 8 --img_size 224 --in_chans 1 --num_controls 5 --control_strategy matched_random --fill_mode neutral --encoder_batch_size 8
+Device: cuda
+
+=== Loading MAE encoder ===
+[MAE] Loaded weights from /home/jchwang/ray/outputs/mae_huge_mimic_97ep_imagenet_init_256_bs32/checkpoint-96.pth: <All keys matched successfully>
+[MAE] Detected architecture: mae_vit_huge_patch14, input channels: 3
+
+=== Building data loaders ===
+[VinDr-CXR] Loaded image metadata from /home/jchwang/ray/data/VinBigData_ChestXray/images_1024/train_meta.csv
+[VinDr-CXR] Using deterministic train split: 12000 images (excluded 3000 held-out images)
+[VinDr-CXR] train split: 12000 images, 1500 batches
+[VinDr-CXR] Loaded image metadata from /home/jchwang/ray/data/VinBigData_ChestXray/images_1024/train_meta.csv
+[VinDr-CXR] No annotation CSV for split='test', falling back to train.csv (will sample subset)
+[VinDr-CXR] Using image dir: /home/jchwang/ray/data/VinBigData_ChestXray/images_1024/train
+[VinDr-CXR] Using deterministic held-out split: 3000 images from train.csv as test set
+[VinDr-CXR] test split: 3000 images, 375 batches
+
+=== Loading pre-trained probe from /home/jchwang/ray/JEPA/results/exp1_mae_huge_mimic_97ep_fixedsplit/probe.pth ===
+
+=== Evaluating class-aligned lesion sensitivity ===
+  batch 20/375: class-aligned rows=138
+  batch 40/375: class-aligned rows=286
+  batch 60/375: class-aligned rows=431
+  batch 80/375: class-aligned rows=561
+  batch 100/375: class-aligned rows=736
+  batch 120/375: class-aligned rows=857
+  batch 160/375: class-aligned rows=1170
+  batch 180/375: class-aligned rows=1316
+  batch 200/375: class-aligned rows=1482
+  batch 220/375: class-aligned rows=1633
+  batch 240/375: class-aligned rows=1792
+  batch 260/375: class-aligned rows=1980
+  batch 280/375: class-aligned rows=2154
+  batch 300/375: class-aligned rows=2292
+  batch 320/375: class-aligned rows=2478
+  batch 340/375: class-aligned rows=2628
+  batch 360/375: class-aligned rows=2769
+
+=== Saving class-aligned results ===
+Saved class-aligned rows to /home/jchwang/ray/JEPA/results/exp2b_class_aligned_mae_huge_mimic_97ep_fixedsplit/class_aligned_per_sample.csv
+
+Done. Results saved to /home/jchwang/ray/JEPA/results/exp2b_class_aligned_mae_huge_mimic_97ep_fixedsplit
++ python experiments/exp2_lesion_sensitivity/analyze_class_aligned.py --exp2_dir /home/jchwang/ray/JEPA/results/exp2b_class_aligned_mae_huge_mimic_97ep_fixedsplit --output_dir /home/jchwang/ray/JEPA/results/exp2b_class_aligned_mae_huge_mimic_97ep_fixedsplit/class_aligned_analysis --model_name MAE-H/97
+/home/jchwang/ray/JEPA/experiments/exp2_lesion_sensitivity/analyze_class_aligned.py:40: FutureWarning: The default of observed=False is deprecated and will be changed to True in a future version of pandas. Pass observed=False to retain current behavior or observed=True to adopt the future default and silence this warning.
+  for group, sub in df.groupby(group_col, dropna=False):
+Class-aligned analysis written to /home/jchwang/ray/JEPA/results/exp2b_class_aligned_mae_huge_mimic_97ep_fixedsplit/class_aligned_analysis
++ python experiments/exp2_lesion_sensitivity/make_class_aligned_cases.py --exp2_dir /home/jchwang/ray/JEPA/results/exp2b_class_aligned_mae_huge_mimic_97ep_fixedsplit --data_dir /home/jchwang/ray/data/VinBigData_ChestXray --output_dir /home/jchwang/ray/JEPA/results/exp2b_class_aligned_mae_huge_mimic_97ep_fixedsplit/class_aligned_cases --max_cases 9 --img_size 224 --in_chans 1
+[VinDr-CXR] Loaded image metadata from /home/jchwang/ray/data/VinBigData_ChestXray/images_1024/train_meta.csv
+[VinDr-CXR] No annotation CSV for split='test', falling back to train.csv (will sample subset)
+[VinDr-CXR] Using image dir: /home/jchwang/ray/data/VinBigData_ChestXray/images_1024/train
+[VinDr-CXR] Using deterministic held-out split: 3000 images from train.csv as test set
+Saved 9 class-aligned case figures to /home/jchwang/ray/JEPA/results/exp2b_class_aligned_mae_huge_mimic_97ep_fixedsplit/class_aligned_cases
++ MAE300=/home/jchwang/ray/outputs/mae_huge_mimic_300ep_imagenet_init_256_bs32/checkpoint-300.pth
++ '[' -f /home/jchwang/ray/outputs/mae_huge_mimic_300ep_imagenet_init_256_bs32/checkpoint-300.pth ']'
++ echo 'WARN: checkpoint-300.pth not complete yet; skipping MAE-H/300 Exp2b in this node08 run'
+WARN: checkpoint-300.pth not complete yet; skipping MAE-H/300 Exp2b in this node08 run
++ python scripts/build_class_aligned_figures.py
+results/paper_figures/fig9_exp2b_class_aligned_overall.png
+results/paper_figures/fig10_exp2b_group_effects.png
+results/paper_figures/fig11_exp2b_class_heatmap.png
+results/paper_figures/fig12_exp2b_area_response.png
+results/paper_figures/fig13_exp2b_case_sheet.png
++ python scripts/write_exp2b_report_section.py
+results/paper_figures/exp2b_report_section.md
++ date
+Tue May  5 09:52:10 AM CST 2026
++ echo DONE_EXP2B_CLASS_ALIGNED
+DONE_EXP2B_CLASS_ALIGNED

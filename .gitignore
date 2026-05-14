@@ -1,0 +1,29 @@
+# 不上传的第三方代码
+mae/
+
+# 大数据文件
+data/
+pretrained/
+tiny-imagenet-200/
+
+# 实验输出 (只保留 paper_figures)
+results/exp*/
+results/logs/
+results/visualizations/
+
+# 临时文件和输出
+output_dir/
+test_output/
+.tmp/
+
+# Claude 配置
+.claude/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# 系统文件
+.DS_Store
+Thumbs.db
