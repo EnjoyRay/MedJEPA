@@ -1,0 +1,71 @@
+{
+  "base": "/home/uic2/zhaoyi/medical-i-jepa",
+  "checkpoints": [
+    {
+      "path": "/home/uic2/zhaoyi/medical-i-jepa/golden_checkpoints/v3.1_ep201_jepa.pth.tar",
+      "bytes": 10358172879,
+      "mtime": "2026-04-28 11:52:08",
+      "metadata": {}
+    },
+    {
+      "path": "/home/uic2/zhaoyi/medical-i-jepa/golden_checkpoints/v4_ep50_jepa.pth.tar",
+      "bytes": 10358172943,
+      "mtime": "2026-04-29 19:25:56",
+      "metadata": {}
+    },
+    {
+      "path": "/home/uic2/zhaoyi/medical-i-jepa/golden_checkpoints/v5_ep60_jepa.pth.tar",
+      "bytes": 10358256378,
+      "mtime": "2026-05-01 17:02:48",
+      "metadata": {}
+    },
+    {
+      "path": "/home/uic2/zhaoyi/medical-i-jepa/golden_checkpoints/v6_ep40_jepa.pth.tar",
+      "bytes": 10358172943,
+      "mtime": "2026-05-02 21:25:07",
+      "metadata": {}
+    },
+    {
+      "path": "/home/uic2/zhaoyi/medical-i-jepa/logs/pretrain_mimic_cxr_vith14/_final_restart_archive/jepa-latest.pth.tar",
+      "bytes": 10358172879,
+      "mtime": "2026-04-23 14:24:26",
+      "metadata": {}
+    },
+    {
+      "path": "/home/uic2/zhaoyi/medical-i-jepa/logs/pretrain_mimic_cxr_vith14/jepa-latest.pth.tar",
+      "bytes": 10358172879,
+      "mtime": "2026-05-17 21:19:00",
+      "metadata": {}
+    },
+    {
+      "path": "/home/uic2/zhaoyi/medical-i-jepa/logs/pretrain_mimic_cxr_vith14_v4_noise/jepa-latest.pth.tar",
+      "bytes": 10358172943,
+      "mtime": "2026-04-29 17:20:05",
+      "metadata": {}
+    },
+    {
+      "path": "/home/uic2/zhaoyi/medical-i-jepa/logs/pretrain_mimic_cxr_vith14_v5_register/jepa-latest.pth.tar",
+      "bytes": 10358256378,
+      "mtime": "2026-05-01 01:20:10",
+      "metadata": {}
+    },
+    {
+      "path": "/home/uic2/zhaoyi/medical-i-jepa/logs/pretrain_mimic_cxr_vith14_v6_vicreg/jepa-latest.pth.tar",
+      "bytes": 10358172943,
+      "mtime": "2026-05-02 20:06:50",
+      "metadata": {}
+    }
+  ],
+  "gpus_csv": "0, NVIDIA RTX 6000 Ada Generation, 49140, 223, 0\n1, NVIDIA RTX 6000 Ada Generation, 49140, 13891, 0\n2, NVIDIA RTX 6000 Ada Generation, 49140, 13469, 0\n3, NVIDIA RTX 6000 Ada Generation, 49140, 10551, [N/A]\n",
+  "data_checks": [
+    {
+      "path": "/home/uic2/zhaoyi/VinBigData_ChestXray",
+      "exists": true
+    },
+    {
+      "path": "/home/uic2/Raymond/VinBigData_ChestXray",
+      "exists": false
+    }
+  ],
+  "mae300_candidates": []
+}

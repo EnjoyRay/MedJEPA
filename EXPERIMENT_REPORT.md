@@ -1,561 +1,583 @@
 # I-JEPA 胸片自监督表征行为诊断报告
 
-> 本报告是思考脚手架，目标不是写论文，而是理清实验逻辑、确认证据强度、找出缺口，为后续提出 JEPA 改进方法做准备。
+> **目标**：通过对照实验理清 I-JEPA 在胸片中学到了什么，定位优劣势，评估后训练改进策略。
 >
-> 原始报告备份：`EXPERIMENT_REPORT_backup_20260507.md`
-
-更新日期：2026-05-07
-上游预训练数据：MIMIC-CXR
-下游评估数据：VinDr-CXR / VinBigData chest X-ray labeled subset
-评估协议：frozen encoder + linear probe，固定 held-out split，train=12,000，validation=3,000
+> **更新日期**：2026-05-19
 
 ---
 
-## 1. 研究动机
+## JEPA300 Fair-Rerun Status
 
-我们有一个 I-JEPA 模型在 MIMIC-CXR 上预训练完，也有 MAE 作为对比 baseline。现在要做的事情不是急着 claim "谁更好"，而是**通过对照实验理解 I-JEPA 在胸片里到底学到了什么**。
+本版已将主比较切换为 **I-JEPA-H/300 vs MAE-H/300**。I-JEPA-H/201 只作为历史参照，不再作为公平主结论。
 
-具体而言，我们关心两个维度：
+- JEPA300 checkpoint：`/home/uic2/zhaoyi/medical-i-jepa/logs/pretrain_mimic_cxr_vith14/jepa-latest.pth.tar`
+- UIC 训练日志确认：`Epoch 300/300 complete`，`Checkpoint saved (epoch 300)`，完成于 2026-05-17。
+- JEPA300 下游 Exp1–Exp8 已在 UIC 全量完成，汇总文件为 `results/jepa300_fair_summary_full.csv`。
+- MAE300 使用既有完整测试结果：`results/exp*_mae_huge_mimic_300ep_fixedsplit/`。
+- JEPA250 / JEPA250+50 checkpoint 尚未在 UIC 发现；本版不写入主结论。
 
-- **维度 A — 表征稳定性**：I-JEPA 对不应该改变诊断语义的扰动（噪声、亮度、模糊等）是否稳定？不稳定的话，问题出在 encoder 表征的哪一层？是高频纹理依赖还是决策边界问题？
-- **维度 B — 病灶敏感性**：I-JEPA 是否对医生标注的病灶区域有响应？如果有，响应是否真正落在病灶内部？如果没有，那 I-JEPA 到底在看什么来做分类？
+## 目录
 
-两条线的终点是形成对 JEPA 行为的深入理解，而不是打分。
-
----
-
-## 2. 实验协议
-
-### 2.1 预训练模型
-
-| 模型 | 说明 |
-|---|---|
-| I-JEPA-H/95 | ViT-H I-JEPA，MIMIC-CXR 预训练 95 epoch |
-| I-JEPA-H/201 | ViT-H I-JEPA，MIMIC-CXR 预训练 201 epoch（当前最新完整 checkpoint） |
-| MAE-H/97 | ViT-H MAE，ImageNet 初始化后在 MIMIC-CXR 预训练 97 epoch |
-| MAE-H/300 | ViT-H MAE，同一配置继续预训练到 300 epoch（2026-05-06 完成，checkpoint-299.pth） |
-
-注：I-JEPA 预训练在 202 epoch 收到 SIGTERM 停止，目前没有 I-JEPA-H/300 checkpoint。
-
-### 2.2 下游数据与评估
-
-- 下游数据：VinDr-CXR / VinBigData chest X-ray labeled subset
-- Split：deterministic held-out，train=12,000，validation=3,000
-- 评估方式：frozen encoder + linear probe（所有主实验统一）
-- 注意：当前是 internal validation，不是官方 test benchmark
-
-### 2.3 主要指标
-
-| 指标 | 含义 | 用在哪里 |
-|---|---|---|
-| Macro AUROC | 多标签分类主指标 | 所有实验 |
-| AUROC drop | 扰动后 AUROC 相对 clean 的下降 | Exp1, Exp3 |
-| Cosine drift | clean 与扰动后 embedding 的余弦距离，越小越稳定 | Exp1, Exp3, Exp4 |
-| Logit drop | `logit(original) − logit(occluded)`，正值表示遮挡后目标类别分数下降 | Exp2b |
-| Delta logit drop | lesion logit drop 减 matched control logit drop | Exp2b |
-| Inside saliency ratio / soft IoU | 梯度×激活 saliency 落在 bbox 内的比例 | Exp4 |
-
-Delta 的解释要小心：Delta 为正只说明 lesion 遮挡比 control 遮挡影响更大。如果 lesion drop 和 control drop 都是负数，则不能说模型"依赖病灶"，只能说两种遮挡的相对效应不同。
+1. [实验设置](#1-实验设置)
+2. [诊断线 A：表征稳定性（噪声鲁棒性）](#2-诊断线-a表征稳定性)
+   - [2.1 Exp1 — 常规扰动鲁棒性](#21-exp1--常规扰动鲁棒性)
+   - [2.2 Exp3 — 频率敏感性定位](#22-exp3--频率敏感性定位)
+   - [2.3 Exp7 — 探针容量：问题在编码器还是探针？](#23-exp7--探针容量问题在编码器还是探针)
+   - [2.4 Exp8 — 部分微调：重新训练能修复吗？](#24-exp8--部分微调重新训练能修复吗)
+   - [2.5 Exp5/Exp6 — 缓解方案](#25-exp5exp6--缓解方案)
+3. [诊断线 B：病灶敏感性](#3-诊断线-b病灶敏感性)
+   - [3.1 Exp2b — 分类对齐遮挡实验](#31-exp2b--分类对齐遮挡实验)
+   - [3.2 Exp4 — Token 漂移与显著性分析](#32-exp4--token-漂移与显著性分析)
+4. [后训练改进分析（Golden Checkpoints）](#4-后训练改进分析golden-checkpoints)
+   - [4.1 完整噪声鲁棒性曲线：脆性阈值被推移，而非消除](#41-完整噪声鲁棒性曲线脆性阈值被推移而非消除)
+   - [4.2 病灶敏感性对比](#42-病灶敏感性对比)
+   - [4.3 三种策略的综合评价](#43-三种策略的综合评价)
+5. [综合讨论](#5-综合讨论)
+6. [关键数据速查表](#6-关键数据速查表)
 
 ---
 
-## 3. Line 1 — 鲁棒性诊断
+## 1. 实验设置
 
-核心问题：I-JEPA 对不应该改变诊断语义的扰动是否稳定？不稳定的话问题出在哪？
+### 基础预训练模型
 
-### 3.1 Clean 基线
+| 模型 | 架构 | 预训练 | Clean AUROC |
+|------|------|--------|:-----------:|
+| **I-JEPA-H/300** | ViT-Huge patch14, 1280-dim | MIMIC-CXR, 300 epochs | **0.910** |
+| I-JEPA-H/201 | ViT-Huge patch14, 1280-dim | MIMIC-CXR, 201 epochs | 0.916 |
+| I-JEPA-H/95 | ViT-Huge patch14, 1280-dim | MIMIC-CXR, 95 epochs | 0.911 |
+| MAE-H/97 | ViT-Huge patch14, 1280-dim | MIMIC-CXR, 97 epochs | 0.895 |
+| **MAE-H/300** | ViT-Huge patch14, 1280-dim | MIMIC-CXR, 300 epochs | 0.891 |
 
-| 模型 | Clean Macro AUROC | F1 |
-|---|---|---|
-| MAE-H/300 | 0.8909 | 0.2254 |
-| MAE-H/97 | 0.8951 | 0.2456 |
-| I-JEPA-H/95 | 0.9105 | 0.3484 |
-| I-JEPA-H/201 | **0.9162** | **0.3721** |
+### 后训练改进模型（Golden Checkpoints）
 
-I-JEPA 两档预训练均高于 MAE。MAE 训练到 300 epoch 的 clean AUROC（0.8909）反而略微低于 97 epoch（0.8951），没有追上 I-JEPA。
+后训练谱系如下：v4 从 v3.1（= I-JEPA-H/201）继续训练；v5 和 v6 都从 v4 ep50 warm-start，因此继承了 v4 的 context-target 不对称噪声训练。
 
-### 3.2 Exp1：常规扰动鲁棒性（发现问题）
+| 缩写 | 后训练方式 | Epochs | 原理简述 |
+|------|-----------|:------:|---------|
+| **v3.1** | 基础预训练（基线） | 201 | — |
+| **v4 (+noise)** | Context-target 不对称噪声 | +50 | 学生编码器看加噪图，教师/target 编码器看 clean 图，显式注入噪声不变性 |
+| **v5 (+reg)** | Register Tokens + 紧 mask + 继承 v4 噪声 | +60 | 加 4 个 DINOv2 风格 register token，并收紧 mask 策略；`reg` 不是图像配准 |
+| **v6 (+vicreg)** | V4 + patch-level var/cov 正则 | +40 | 在 I-JEPA 主损失上加小权重 variance/covariance 辅助项；不是标准 2-view VICReg |
 
-**实验设计**：对 held-out 图像施加 Gaussian noise、Gaussian blur、brightness shift、contrast scaling 四类扰动，每类 4 个强度，评估分类性能和 embedding drift。
+> 三种策略的原理详解见 [附录：后训练策略原理](#附录后训练策略原理)
 
-**扰动可视化**：
+### 评估协议
 
-![不同扰动对胸片的视觉影响](results/paper_figures/fig0_perturbation_visual_examples.png)
+- **数据集**：VinDr-CXR / VinBigData（15 类多标签分类，含边界框标注）
+- **划分**：确定性 80/20 split（train=12,000, test=3,000, seed=42）
+- **默认评估**：冻结编码器 + 线性探针（LinearProbe）
+- **扩展评估**：MLP 探针（Exp7）、部分微调（Exp8）
+- **指标**：Macro AUROC、Cosine Drift（1 − cosine_similarity）
 
-**完整鲁棒性表格**（每格：AUROC，括号内为相对 clean 的 AUROC drop 和 cosine drift d）：
+| 协议 | 容量 | 训练 | 用在 |
+|---|---|---|---|
+| **LinearProbe** | 1 层 Linear (1280 → 15) + BatchNorm1d | SGD lr=0.1, momentum=0.9, CosineAnnealing, 100 ep, BCEWithLogitsLoss + pos_weight | Exp1, Exp2b, Exp3, Exp5, §4.* 默认 |
+| **MLPProbe** | Linear → GELU → Dropout → Linear (512 hidden) | 同 LinearProbe | Exp7 |
+| **Partial FT** | 解冻 encoder 最后 2 个 ViT block + LayerNorm + MLP head | AdamW, lr_encoder=1e-5, lr_head=1e-4, 15 ep | Exp8 |
 
-![Exp1 complete robustness table](results/paper_figures/table1_exp1_complete_summary.png)
+> **协议差异声明**：本报告 AUROC 基于 12,000 train / 3,000 test 的探针评估。上游 V3.1/V4/V5 训练侧 baseline eval 使用 15,000 train / 3,000 test；同一 checkpoint 的 clean AUROC 可能高约 0.02（例如 V3.1 ep201 上游为 0.9373，本报告为 0.916）。跨报告比较应看趋势和符号，不应逐小数点对齐。
 
-**四种扰动下的关键对比数据**：
+---
 
-**Gaussian Noise**：
+## 2. 诊断线 A：表征稳定性
+
+> **核心问题**：I-JEPA 对不应改变诊断语义的扰动是否稳定？如果不稳定，问题是在编码器表征层面还是探针/决策边界层面？
+
+### 2.1 Exp1 — 常规扰动鲁棒性
+
+**方法**：对测试图像施加 4 类扰动（高斯噪声 ×4 级、高斯模糊 ×3 级、亮度偏移 ×3 级、对比度缩放 ×2 级），测量分类性能下降和嵌入漂移。
+
+**完整高斯噪声曲线**：
 
 | 模型 | Clean | σ=0.05 | σ=0.10 | σ=0.20 | σ=0.30 |
-|---|---|---|---|---|---|
-| I-JEPA-H/95 | .9105 | .7616 (d 0.889) | .6306 (d 0.975) | .5408 (d 0.977) | .5422 (d 0.974) |
-| I-JEPA-H/201 | .9162 | .6431 (d 0.872) | .5960 (d 0.963) | .5861 (d 0.960) | .5882 (d 0.953) |
-| MAE-H/97 | .8951 | .7880 (d 0.142) | .6466 (d 0.319) | .5210 (d 0.436) | .5132 (d 0.497) |
-| MAE-H/300 | .8909 | .7765 (d 0.169) | .6182 (d 0.319) | .4902 (d 0.339) | .4849 (d 0.337) |
+|------|:-----:|:------:|:------:|:------:|:------:|
+| **I-JEPA-H/300** | **0.910** | 0.641 | 0.589 | 0.571 | 0.553 |
+| I-JEPA-H/201 | 0.916 | 0.643 | 0.596 | 0.586 | 0.588 |
+| I-JEPA-H/95 | 0.911 | 0.762 | 0.631 | 0.541 | 0.542 |
+| **MAE-H/300** | 0.891 | **0.777** | **0.618** | 0.490 | 0.485 |
 
-**Gaussian Blur**：
+**余弦漂移（Cosine Drift）**：
 
-| 模型 | Clean | σ=0.5 | σ=1.0 | σ=2.0 | σ=3.0 |
-|---|---|---|---|---|---|
-| I-JEPA-H/95 | .9105 | .8955 (d 0.022) | .8486 (d 0.109) | .7969 (d 0.242) | .7356 (d 0.403) |
-| I-JEPA-H/201 | .9162 | .9095 (d 0.024) | .8559 (d 0.242) | .7752 (d 0.441) | .7536 (d 0.510) |
-| MAE-H/97 | .8951 | .8905 (d 0.007) | .8037 (d 0.111) | .7429 (d 0.244) | .7492 (d 0.273) |
-| MAE-H/300 | .8909 | .8820 (d 0.014) | .8428 (d 0.083) | .7785 (d 0.152) | .7267 (d 0.186) |
+| 模型 | σ=0.05 | σ=0.10 | σ=0.20 | σ=0.30 |
+|------|:------:|:------:|:------:|:------:|
+| **I-JEPA-H/300** | **0.755** | 0.895 | 0.871 | 0.824 |
+| I-JEPA-H/201 | 0.872 | 0.963 | 0.957 | 0.956 |
+| I-JEPA-H/95 | 0.889 | 0.975 | 0.970 | 0.971 |
+| **MAE-H/300** | 0.169 | 0.319 | 0.339 | 0.337 |
 
-**Brightness Shift**：
+**核心发现**：
 
-| 模型 | Clean | δ=+0.1 | δ=+0.2 | δ=−0.1 | δ=−0.2 |
-|---|---|---|---|---|---|
-| I-JEPA-H/95 | .9105 | .9003 (d 0.032) | .8603 (d 0.169) | .9085 (d 0.010) | .9002 (d 0.036) |
-| I-JEPA-H/201 | .9162 | .9074 (d 0.022) | .8584 (d 0.124) | .9155 (d 0.012) | .9094 (d 0.040) |
-| MAE-H/97 | .8951 | .8825 (d 0.003) | .8112 (d 0.019) | .8948 (d 0.003) | .8877 (d 0.012) |
-| MAE-H/300 | .8909 | .8804 (d 0.005) | .8119 (d 0.022) | .8876 (d 0.007) | .8756 (d 0.028) |
+1. **JEPA300 仍然存在"脆性阈值"**：σ=0.05（肉眼几乎不可见）就导致 I-JEPA-H/300 的表征大幅漂移（drift 0.755），AUROC 从 0.910 跌到 0.641。继续增大噪声后 AUROC 基本进入平台区（0.589→0.553），说明表征在轻噪声下已发生主要跳变。
 
-**Contrast Scaling**：
+2. **JEPA300 没有解决 JEPA201 的噪声问题**：300 epoch clean AUROC 为 0.910，略低于 JEPA201 的 0.916；σ=0.05 AUROC 为 0.641，几乎复现 JEPA201 的 0.643。更长预训练没有带来自然鲁棒性。
 
-| 模型 | Clean | ×1.5 | ×2.0 | ×0.5 | ×0.25 |
-|---|---|---|---|---|---|
-| I-JEPA-H/95 | .9105 | .8629 (d 0.110) | .8036 (d 0.255) | .8737 (d 0.074) | .7885 (d 0.231) |
-| I-JEPA-H/201 | .9162 | .8549 (d 0.133) | .7968 (d 0.314) | .8889 (d 0.123) | .7708 (d 0.398) |
-| MAE-H/97 | .8951 | .8222 (d 0.015) | .7725 (d 0.040) | .8813 (d 0.036) | .7718 (d 0.110) |
-| MAE-H/300 | .8909 | .8242 (d 0.021) | .7836 (d 0.051) | .8076 (d 0.045) | .6987 (d 0.141) |
+3. **MAE300 在轻噪声下明显更稳**：σ=0.05 时 MAE300 AUROC 0.777，高于 JEPA300 的 0.641；drift 仅 0.169，是 JEPA300 的约 1/4。MAE 的像素重建目标仍然带来更平滑的轻噪声响应。
 
-**AUROC drop 与 representation drift 的关系**：
-
-![AUROC drop vs representation drift](results/paper_figures/fig2_exp1_drop_drift_tradeoff.png)
-
-**Exp1 核心发现**：
-
-1. **I-JEPA 和 MAE 对噪声的响应模式完全不同——这是 Exp1 最重要的发现**。
-
-   关键是看 AUROC 随噪声强度变化的**趋势差异**，而不是只看单个噪声水平下的排名：
-
-   - I-JEPA：轻噪声下急剧下跌，然后**饱和**。I-JEPA-H/201 从 clean 0.9162 → σ=0.05 时跌到 0.6431（drop=0.273）→ σ=0.10 时 0.5960 → 之后 σ=0.20 和 σ=0.30 基本停在 0.586-0.588，不再继续下降。
-   - MAE：随噪声强度**渐进下降**。MAE-H/97 从 clean 0.8951 → 0.7880 → 0.6466 → 0.5210 → 0.5132，每一步都在跌。
-   - 结果在轻噪声（σ=0.05, 0.10）下 MAE 优于 I-JEPA，但在重噪声（σ=0.20, 0.30）下 I-JEPA 反超 MAE。例如 σ=0.20 时 I-JEPA-H/201 AUROC=0.5861，MAE-H/97=0.5210，MAE-H/300=0.4902。
-
-   Embedding drift 数据给出了机制层面的对应：
-   - I-JEPA-H/201：cosine drift 在 σ=0.05 时已达 0.872，σ=0.10 时 0.963，接近饱和（最大值 1.0），之后几乎不变（0.960, 0.953）。**表征方向在轻噪声下已经"跳变"到一个不同状态，再加更多噪声也不会让它变得更差。**
-   - MAE-H/97：drift 随噪声线性增长 0.142 → 0.319 → 0.436 → 0.497。**表征方向随噪声强度持续退化。**
-
-   这两个模式合起来给出的假说是：I-JEPA 的表征对噪声有一个"脆性阈值"——一点点噪声就足以破坏其依赖的细粒度纹理特征，表征跳变到另一个状态；但跳变之后，剩下的高层语义结构（大致解剖布局、器官位置关系等）对噪声强度不敏感，所以 AUROC 不再继续下降。MAE 的表征没有这个阈值效应，它随噪声强度连续退化——低噪声时表征仍部分可用（drift 小），高噪声时彻底崩溃。
-
-   这也解释了为什么 I-JEPA-H/201（clean 最强）在轻噪声下表现最差：更长的预训练让它更充分地利用了细粒度纹理信息来做判别，这些信息恰好是轻噪声首先破坏的。
-
-2. **I-JEPA 对亮度相对稳定，对 blur 和 contrast 处于中间水平**。亮度±0.1 下 I-JEPA 几乎没有下降。Blur σ=3.0 时 I-JEPA-H/95 的 drop（0.175）略大于 MAE-H/97（0.146）。Blur 下的 drift 模式：I-JEPA 的 drift 随 blur 强度增长比 MAE 更快（H/201: 0.024 → 0.242 → 0.441 → 0.510；MAE-H/97: 0.007 → 0.111 → 0.244 → 0.273），但 blur 不像噪声那样有"阈值跳变"效应，更接近渐进退化。
-
-3. **MAE-H/300 在多个条件下比 MAE-H/97 更差**。噪声 σ=0.30 下 AUROC 从 0.5132 降到 0.4849；contrast 0.25 下从 0.7718 降到 0.6987。MAE 继续训练不是单调改善，某些条件下反而退化。
-
-4. **I-JEPA-H/201 vs H/95 的对比验证了"更长的预训练→更强的纹理依赖→更明显的脆性阈值"**。H/201 clean 比 H/95 高（0.9162 vs 0.9105），但轻噪声下 H/201 跌得更狠（σ=0.05 时 0.6431 vs 0.7616）。重噪声下 H/201 反而高于 H/95（σ=0.20 时 0.5861 vs 0.5408）——因为 H/201 的"跳变后平台"更高，说明其学到的高层语义结构也更强。
-
-**学到什么**：说"I-JEPA 对噪声敏感"不够精确。更准确的说法是——I-JEPA 的表征对噪声有一个**脆性阈值**：极轻的噪声就足以破坏其依赖的细粒度特征（表征跳变），但跳变后剩余的高层语义信息对噪声强度不敏感。MAE 没有这种阈值效应，表征随噪声强度连续退化。这意味着 I-JEPA 的噪声问题不是"学得不够好"，而是其表征中**细粒度纹理和全局语义之间的耦合方式**与 MAE 根本不同。
-
-**还不确定什么，引出 Exp3**：
-
-Exp1 用 Gaussian noise 发现了脆性阈值现象，但 Gaussian noise 是宽频的——它在所有频率上同时加随机扰动。所以这个发现引出一个更精确的问题：
-
-> I-JEPA 的脆性阈值到底是由哪个频率段触发的？
-
-具体来说有三种可能：
-- 可能是**高频颗粒**（细边缘、纹理噪声）触发了跳变——轻噪声首先污染这些，再加更多噪声也不会更糟
-- 可能是**中频纹理**（组织密度渐变、血管边缘）是关键——这些被破坏后分类就崩了
-- 也可能阈值不是单一频率段的问题，而是任意频率的破坏达到某个量级就会触发
-
-Exp3 的做法是把宽频噪声按频段拆开，用 band corruption（在特定频段内注入随机噪声，其他频段保留原图）逐一测试，看哪个频段的破坏能复现 Exp1 的 I-JEPA 崩塌。
-
-### 3.3 Exp3：频率敏感性分析（机制定位）
-
-**实验逻辑**：Exp1 发现 I-JEPA 对宽频 Gaussian noise 有脆性阈值响应。Exp3 用 band corruption 把噪声限制在特定频段，逐一测试 low/mid/high 三个频段，定位到底是哪个频率成分触发了 I-JEPA 的性能崩塌。
-
-**实验设计**：对同一 held-out split 施加三个频段的 band corruption——低频（0.00-0.20）、中频（0.20-0.45）、高频（0.45-1.00）。在目标频段内注入随机噪声替换原有频率成分，其他频段保留原图。报告 Macro AUROC、AUROC drop 和 cosine drift。
-
-**频率扰动可视化**：
-
-![频率扰动视觉示例](results/paper_figures/fig14a_exp3_frequency_visual_examples.png)
-
-**三个频段的 band corruption 结果**（AUROC，括号内为 drop 和 cosine drift d）：
-
-| 频段 | I-JEPA-H/95 | I-JEPA-H/201 | MAE-H/97 | MAE-H/300 |
-|---|---|---|---|---|
-| Low (0.00-0.20) | .869 (d .042; d .10) | .855 (d .061; d .14) | .871 (d .024; d .02) | .848 (d .042; d .02) |
-| **Mid (0.20-0.45)** | **.605** (d .306; d .85) | **.614** (d .302; d .88) | .761 (d .134; d .12) | .741 (d .150; d .14) |
-| **High (0.45-1.00)** | .719 (d .191; d .97) | **.651** (d .265; d .93) | .764 (d .131; d .20) | .724 (d .167; d .21) |
-
-> 对照：Exp1 中 I-JEPA-H/201 在 Gaussian noise σ=0.05 下 AUROC=0.643, drop=0.273, drift=0.872。
-
-**Exp3 核心发现**：
-
-1. **破坏中频段（0.20-0.45）触发 I-JEPA 最大崩塌**。I-JEPA-H/201 AUROC 跌至 0.614（drop=0.302, drift=0.88），I-JEPA-H/95 跌至 0.605（drop=0.306, drift=0.85）。崩塌幅度和 drift 水平与 Exp1 中 Gaussian noise σ=0.05 相当（drop=0.273, drift=0.87）。MAE-H/97 在同条件下 AUROC=0.761（drop=0.134），受影响远小于 I-JEPA。
-
-2. **高频段（0.45-1.00）破坏的 I-JEPA 崩塌程度次之**。I-JEPA-H/201 AUROC=0.651（drop=0.265, drift=0.93），MAE-H/97 AUROC=0.764（drop=0.131, drift=0.20）。
-
-3. **低频段（0.00-0.20）破坏对所有模型影响都小，I-JEPA 和 MAE 之间无明显分化**。I-JEPA-H/201 AUROC=0.855（drop=0.061），MAE-H/97 AUROC=0.871（drop=0.024）。
-
-**回扣 Exp1 的脆性阈值**：
-
-三个频段的结果给出一个清晰的梯度：**破坏的频段越高中频，I-JEPA 崩塌越严重，而 MAE 的受影响程度在所有频段都相对均匀**。
-
-Exp1 的脆性阈值可以用这个梯度来解释：
-- Gaussian noise σ=0.05 的噪声功率已经足以污染中/高频段 → 触发 I-JEPA 的脆性崩塌 → AUROC 从 0.91 跌至 ~0.64
-- σ=0.10 以上增加的噪声功率主要增加在低频段 → 但 I-JEPA 对低频破坏不敏感 → AUROC 不再继续下降 → 停在 ~0.59 的平台
-
-也就是说，脆性阈值的物理对应是：**I-JEPA 对中/高频段的纹理和边缘信息高度依赖，这些信息在轻噪声下就被完全破坏（drift → 1.0）；剩余的低频结构信息（解剖轮廓、器官位置）对噪声强度不敏感，所以 AUROC 进入平台。**
-
-**学到什么**：I-JEPA 的噪声脆弱性不是均匀的——它对中/高频段有选择性的高度敏感，对低频段不敏感。这个梯度解释了 Exp1 的脆性阈值。MAE 对三个频段的响应更均匀，没有明显的频段选择性崩塌。
-
-**还不确定什么**：为什么 I-JEPA 在中/高频被破坏后还能靠剩余低频信息维持 ~0.59 的 AUROC？这两个"模式"（正常利用中高频 vs 降级到纯低频）是 encoder 中不同层的贡献，还是同一层在输入频谱变化后激活了不同的 feature 子集？
-
-### 3.4 Line 1 小结：从现象到机制的完整逻辑链
-
-1. **Exp1 发现脆性阈值现象**：I-JEPA 在轻 Gaussian noise（σ=0.05）下 AUROC 崩塌（drop=0.273, drift=0.87），但重噪声下不再继续崩（AUROC 停在 ~0.59）。MAE 没有阈值效应——随噪声强度渐进退化。
-
-2. **Exp3 用 band corruption 定位到频段敏感性梯度**：单独破坏中频段（0.20-0.45）就能触发与 Exp1 轻噪声同等的崩塌（drop=0.302, drift=0.88）；高频段破坏的崩塌次之（drop=0.265）；低频段破坏影响很小（drop=0.061）。I-JEPA 对频段有选择性崩塌，MAE 对三个频段响应均匀。
-
-3. **两实验拼起来的机制假说**：I-JEPA 的 clean 优势建立在充分利用中高频纹理/边缘信息上。轻噪声的功率足以饱和中/高频段 → 表征跳变（drift → 1.0）→ AUROC 从 0.91 跌至 ~0.64。剩余的低频结构信息对噪声不敏感 → AUROC 进入平台 ~0.59。
-
-**已确认**：
-- I-JEPA clean 表征强（0.9162），MAE-H/300 为 0.8909
-- I-JEPA 的噪声响应是"脆性阈值"型（轻噪声崩→平台），MAE 是"渐进退化"型
-- 脆性阈值对中/高频段有选择性——I-JEPA 的崩塌不是对"噪声"整体，而是对特定频段的破坏
-- MAE 对三个频段的响应更均匀，没有频段选择性崩塌
-
-**待验证**：
-- 中高频依赖是 JEPA 架构特性还是训练时长效应？（无 I-JEPA-H/300）
-- 为什么 MAE 也接触中高频信息（重建需要），但它没有脆性阈值？
-
-**对 JEPA 改进的启示**：如果脆性阈值是真机制，那么单纯加 noise augmentation 可能不够——需要在预训练阶段让 encoder 学会在"纹理缺失"时平稳退化，而不是跳变。
+4. **JEPA300 的高噪声平台略高于 MAE300**：σ=0.20/0.30 下 JEPA300 为 0.571/0.553，MAE300 为 0.490/0.485。这延续了原先观察：I-JEPA 在轻噪声下发生跳变，但跳变后仍保留一部分全局语义平台。
 
 ---
 
-## 4. Line 2 — 病灶敏感性诊断
+### 2.2 Exp3 — 频率敏感性定位
 
-核心问题：I-JEPA 是否对医生标注的病灶区域有响应？如果有，响应是否真正落在病灶内部？
+**方法**：在频域施加针对性扰动——低通滤波、高频抑制、**带通噪声**——精确定位 I-JEPA 脆弱性对应的频率范围。
 
-### 4.1 Exp2b：类别对齐的病灶遮挡实验（发现问题）
+**关键结果**（I-JEPA-H/300）：
 
-**实验设计（这是旧版 Exp2 的重大修复）**：
-- 分析单位从"整张图所有 bbox"改为 `(image_id, class_name)`
-- 只纳入该类别为阳性且存在同类 bbox 的样本
-- 只遮盖该类别的 bbox，多个同类 bbox 先合并成一个 lesion mask
-- 每个 lesion mask 生成 5 个面积、形状、纵向位置相似且不覆盖任何 bbox 的 control masks
-- bbox 坐标已从原始图像尺寸正确缩放到 1024（修复了早期 bbox 飘到背景的问题）
+| 条件 | AUROC | Drop | Drift |
+|------|:-----:|:----:|:-----:|
+| Clean | 0.910 | — | — |
+| Low-pass cutoff=0.15 | 0.670 | −0.240 | 0.437 |
+| **Band corrupt 0.20–0.45** | **0.594** | **−0.317** | **0.752** |
+| Band corrupt 0.00–0.20 | 0.847 | −0.063 | 0.110 |
+| Band corrupt 0.45–1.00 | 0.618 | −0.292 | 0.622 |
 
-**Overall 结果**：
+**核心发现**：
 
-![Exp2b overall result](results/paper_figures/fig9_exp2b_class_aligned_overall.png)
+1. **JEPA300 的频率脆弱性更宽**：0.20–0.45 频段仍是主脆弱带（AUROC 0.594, drift 0.752），但 0.45–1.00 高频段也明显受损（AUROC 0.618）。这比 JEPA201 更像"中高频整体依赖"，而不是单一中频带。
 
-| 模型 | n | Lesion logit drop | Control logit drop | Delta | 95% CI |
-|---|---|---|---|---|---|
-| I-JEPA-H/95 | 2873 | **+0.1600** | −0.0304 | +0.1904 | [+0.1610, +0.2201] |
-| I-JEPA-H/201 | 2873 | **+0.1512** | −0.0622 | **+0.2134** | [+0.1858, +0.2408] |
-| MAE-H/97 | 2873 | −0.2743 | −0.3401 | +0.0658 | [+0.0530, +0.0784] |
-| MAE-H/300 | 2873 | −0.4138 | −0.4526 | +0.0389 | [+0.0252, +0.0525] |
+2. 频段 0.20–0.45 对应胸片中的**细粒度组织纹理**：血管纹理、间质网状结构、骨性边缘。I-JEPA 学会了依赖这些纹理作为判别线索。
 
-**解读**：
-- I-JEPA 的 lesion drop 为正、control drop 为负、delta 为正且显著——遮挡病灶确实降低了对应类别 logit，且效果大于 matched control。这是**好解释的结果**。
-- MAE 的 lesion drop 和 control drop 都是负数（遮挡后 logit 反而上升），delta 虽然为正但绝对值很小。这**很难解释**——遮挡 artifact 的效应可能超过了区域信息损失。不能解释为 MAE "也依赖病灶"。
-- MAE-H/300 的 delta（0.0389）比 MAE-H/97（0.0658）更小，长训练没有让 MAE 的病灶遮挡响应更清晰。
-
-**分组结果（localized vs diffuse/global）**：
-
-![Exp2b group effects](results/paper_figures/fig10_exp2b_group_effects.png)
-
-| 模型 | 疾病组 | n | Delta logit drop | 95% CI |
-|---|---|---|---|---|
-| I-JEPA-H/95 | diffuse_or_global | 1983 | +0.1759 | [+0.1393, +0.2162] |
-| I-JEPA-H/95 | localized | 890 | **+0.2227** | [+0.1830, +0.2637] |
-| I-JEPA-H/201 | diffuse_or_global | 1983 | +0.2260 | [+0.1905, +0.2645] |
-| I-JEPA-H/201 | localized | 890 | +0.1852 | [+0.1462, +0.2252] |
-| MAE-H/97 | diffuse_or_global | 1983 | +0.0414 | [+0.0252, +0.0584] |
-| MAE-H/97 | localized | 890 | +0.1201 | [+0.1022, +0.1391] |
-| MAE-H/300 | diffuse_or_global | 1983 | +0.0287 | [+0.0114, +0.0473] |
-| MAE-H/300 | localized | 890 | +0.0614 | [+0.0418, +0.0816] |
-
-注：localized vs diffuse/global 是人为分析分组，不是数据集原生标签，只帮助解释趋势。
-
-在 localized 组上，所有模型的 delta 都更大，说明局部病灶区域的遮挡效应确实更明显。但 I-JEPA 在两个组上的 delta 绝对值都远超 MAE。
-
-**Per-class heatmap**：
-
-![Per-class heatmap](results/paper_figures/fig11_exp2b_class_heatmap.png)
-
-**Bbox area response（遮挡面积对 delta 的影响）**：
-
-![Area response](results/paper_figures/fig12_exp2b_area_response.png)
-
-用 bbox area fraction 分箱（≤5%、5-15%、15-35%、35-60%、>60%）检查面积是否混杂遮挡效应。
-
-**代表性 case**：
-
-![Case sheet](results/paper_figures/fig13_exp2b_case_sheet.png)
-
-**学到什么**：I-JEPA 对类别对齐的病灶区域有正向统计响应（lesion drop 为正，delta 为正且 CI 不跨零）。这是一个重要的正面发现——I-JEPA 没有完全忽略局部病灶信息。但 delta 的值（~0.19-0.21 logit 单位）并不大，且我们还不知道响应是否精确落在病灶边界内。
-
-**还不确定什么**：I-JEPA 的病灶响应到底落在哪里？是病灶内部、边缘、还是周围的肺野上下文？这引出了 Exp4。
-
-### 4.2 Exp4：Token drift 与 saliency-bbox 对齐（机制定位）
-
-**实验设计**：
-- 计算 clean vs noise、clean vs lesion occlusion、clean vs control occlusion 下每个 token 的 cosine drift
-- 对 target-class logit 做 gradient × activation saliency
-- 计算 inside-bbox saliency ratio、pointing game hit rate、soft IoU
-
-**完整结果**（n=600，localized=97，diffuse/global=503）：
-
-![Exp4 mechanism alignment](results/paper_figures/fig15_exp4_mechanism_alignment.png)
-
-| 模型 | 组别 | n | inside saliency ratio | pointing hit | soft IoU | noise drift | lesion drift | control drift |
-|---|---|---|---|---|---|---|---|---|
-| I-JEPA-H/95 | diffuse/global | 503 | 0.0553 | 0.0278 | 0.0038 | 0.9066 | 0.0374 | 0.0264 |
-| I-JEPA-H/95 | localized | 97 | 0.0764 | 0.1031 | 0.0038 | 0.8959 | 0.0378 | 0.0368 |
-| I-JEPA-H/201 | diffuse/global | 503 | 0.0476 | 0.0398 | 0.0031 | 0.8915 | 0.0433 | 0.0330 |
-| I-JEPA-H/201 | localized | 97 | 0.0690 | 0.0309 | 0.0036 | 0.8488 | 0.0412 | 0.0432 |
-| MAE-H/97 | diffuse/global | 503 | 0.0512 | 0.0577 | 0.0035 | 0.6829 | 0.6745 | 0.6728 |
-| MAE-H/97 | localized | 97 | 0.0694 | 0.1031 | 0.0035 | 0.7003 | 0.6954 | 0.6935 |
-| MAE-H/300 | diffuse/global | 503 | 0.0513 | 0.0497 | 0.0035 | 0.6778 | 0.6576 | 0.6547 |
-| MAE-H/300 | localized | 97 | 0.0696 | 0.0928 | 0.0035 | 0.6913 | 0.6764 | 0.6765 |
-
-**Exp4 核心发现**：
-
-1. **Saliency-bbox overlap 整体极低**。soft IoU 在所有模型上都只有 0.003-0.004，inside saliency ratio 在 0.05-0.08 之间。localized 组略高于 diffuse/global 组（如 I-JEPA-H/95：0.0764 vs 0.0553），但绝对数值仍然很低。说明无论是 I-JEPA 还是 MAE，**预测证据都不是集中在 bbox 内部的**。
-
-2. **I-JEPA 的 noise drift 极高，lesion/control drift 很低**。I-JEPA-H/201 在 noise 下的 token drift 为 0.8488-0.8915（与 Exp1/Exp3 一致），但 lesion 和 control occlusion 下的 drift 只有 0.03-0.04。这给出了一个清晰的对比：**Gaussian noise 对 I-JEPA 表征的影响远大于物理遮挡病灶区域**。噪声在全局范围内破坏 token 表征，而遮挡只影响少数 token。
-
-3. **MAE 的 lesion/control drift 极高（0.65-0.70）且不可区分**。MAE 在 lesion 和 control occlusion 下的 drift 数值都很高而且几乎相等。这说明 MAE 的 token 层对遮挡 artifact（sudden zero-value patches）本身非常敏感，不是因为病灶语义信息被移除。这和 Exp2b 中 MAE 的负 logit drop 是对应的——遮挡产生了强烈的 artifact 信号。
-
-4. **I-JEPA 的 noise drift 远大于 lesion/control drift**，但 MAE 的 noise drift（~0.68-0.70）和 lesion/control drift（~0.65-0.70）在同一量级。这也是为什么 Exp1 中 MAE noise 下 AUROC 也下降了——虽然 cosine drift 绝对值不大，但 token 级别的混乱程度很高。
-
-**解释**：
-
-Exp2b 告诉我们 I-JEPA 对病灶区域有统计敏感性。Exp4 告诉我们，这种敏感性**不是精确空间对齐的**。预测证据分散在病灶周围、肺野结构或全局上下文中。这符合 JEPA 的预训练目标——它预测的是 context block 和 target block 之间的关系，而不是像素级定位。
-
-**学到什么**：I-JEPA 的病灶响应是粗粒度的——模型使用了病灶相关区域的信息，但 saliency 不精确落在 bbox 边界内。不能声称"精确病灶定位"。但这也不代表病灶信息没有被使用——更可能是病灶信息被嵌入到了一个分布式的上下文表示中。
-
-**还不确定什么**：
-- 低 saliency-bbox overlap 是 encoder 表征本身的问题，还是 global average pooling + linear probe 的限制？（mean pooling 可能压缩了空间信息）
-- 如果用 attention pooling 或 nonlinear adapter，空间对齐会不会改善？
-
-### 4.3 Line 2 小结
-
-**已确认**：
-- I-JEPA 对病灶区域有正向统计响应（lesion logit drop 为正，delta 为正且 CI 不跨零）
-- 这种响应不是精确空间定位——saliency 不在 bbox 内部（soft IoU ~0.003）
-- MAE 的病灶遮挡行为难以解释（lesion/control drop 均为负，遮挡 artifact 影响大）
-- MAE token 层对遮挡很敏感（lesion/control drift ~0.67），I-JEPA token 层对遮挡不敏感但对噪声很敏感
-
-**待验证**：
-- 下游 probe 结构（非线性、attention pooling）能否改善空间对齐？
-- 病灶信息是被"分布式嵌入上下文"了还是根本没用？
-
-**对 JEPA 改进的启示**：如果希望模型对局部病灶更敏感，可以考虑在下游阶段引入 lesion-aware 信号（如 bbox-aware crop/consistency），或修改 JEPA 预训练的 target block 采样策略。
+3. **MAE300 衰减更渐进**：MAE300 在 0.20–0.45 和 0.45–1.00 的 AUROC 分别约为 0.741 和 0.724，均高于 JEPA300；这进一步说明 JEPA300 的频域敏感性没有随 300 epoch 训练自然消失。
 
 ---
 
-## 5. 缓解尝试（Exp5 + Exp6，简要）
+### 2.3 Exp7 — 探针容量：问题在编码器还是探针？
 
-**这两个实验不是贡献，是初步试探**，用来验证前面诊断出的问题是否可以被缓解，从而交叉验证我们对问题性质的理解。
+> **这是夯实 I-JEPA 噪声脆性本质的关键实验。**
 
-### Exp5：Denoise + Robust Probe
+**方法**：将 LinearProbe（单层线性）替换为 MLPProbe（Linear→GELU→Dropout→Linear, 512 hidden dim）。如果 MLP 能修复噪声性能，说明问题在探针容量不足；如果 MLP 反而更差，说明问题在编码器表征本身。
 
-测试两个低成本方案：测试时对 noisy image 做 denoise preprocessing（Gaussian smoothing / median filter）；或训练 probe 时加入轻噪声、亮度、对比度增强。
+**完整高斯噪声曲线对比**：
 
-![Exp5 results](results/paper_figures/fig16_exp5_lightweight_mitigation.png)
+| 模型 | 探针 | Clean | σ=0.05 | σ=0.10 | σ=0.20 | σ=0.30 |
+|------|------|:-----:|:------:|:------:|:------:|:------:|
+| **I-JEPA-H/300** | Linear | 0.910 | 0.641 | 0.589 | 0.571 | 0.553 |
+| **I-JEPA-H/300** | **MLP** | 0.927 | **0.678** | 0.573 | 0.582 | 0.571 |
+| I-JEPA-H/201 | Linear | 0.916 | 0.643 | 0.596 | 0.586 | 0.588 |
+| I-JEPA-H/201 | MLP | 0.928 | 0.470 | 0.538 | 0.565 | 0.558 |
+| **MAE-H/300** | Linear | 0.891 | 0.777 | 0.618 | 0.490 | 0.485 |
+| **MAE-H/300** | **MLP** | 0.925 | **0.786** | 0.568 | 0.471 | 0.464 |
 
-| 模型 | 条件 | 原始 AUROC | 最好 denoise AUROC | robust probe AUROC |
-|---|---|---|---|---|
-| I-JEPA-H/95 | noise 0.05 | 0.7647 | 0.8239 | **0.8496** |
-| I-JEPA-H/95 | noise 0.10 | 0.6336 | 0.6035 | **0.7032** |
-| I-JEPA-H/201 | noise 0.05 | 0.6434 | **0.8107** | 0.8048 |
-| I-JEPA-H/201 | noise 0.10 | 0.5928 | 0.6333 | **0.6614** |
-| MAE-H/97 | noise 0.05 | 0.7887 | 0.8332 | **0.8443** |
-| MAE-H/97 | noise 0.10 | 0.6486 | **0.7694** | 0.6692 |
-| MAE-H/300 | noise 0.05 | 0.7711 | **0.8325** | 0.8242 |
-| MAE-H/300 | noise 0.10 | 0.6182 | **0.7386** | 0.6456 |
+**以噪声 drop 表示的对比**：
 
-关键观察：
-- 对 I-JEPA-H/201，median filter 能把 noise 0.05 AUROC 从 0.6434 提升到 0.8107（+0.167）——输入端高频噪声确实是重要因素
-- 但对 I-JEPA-H/201 noise 0.10，两种方法提升都很有限（最好 0.6614），说明重噪声下输入端处理已经不够了
-- 这些方法都不能降低 encoder 层面的 cosine drift（仍在 0.87-0.89）
+```
+                     σ=0.05 drop      方向
+JEPA300 Linear:      −0.269
+JEPA300 MLP:         −0.249          基本持平/略好
+MAE300 Linear:       −0.114
+MAE300 MLP:          −0.139          基本持平
+```
 
-### Exp6：Noise-Consistent Adapter (NCA)
+**核心发现**：
 
-NCA 在冻结 encoder 上加一个可训练的 residual MLP adapter + 分类头，训练时约束 clean/noisy 表征的预测一致性。
+1. **JEPA300 与 JEPA201 在探针容量上的表现不同**：JEPA201 的 MLP 在 σ=0.05 下明显恶化（0.470），而 JEPA300 的 MLP 为 0.678，略高于 linear 的 0.641。但 JEPA300 的噪声 drift 仍然很高，说明更大探针改善了决策边界，却没有修复编码器表征跳变。
 
-**重要前提**：NCA 加了可训练的 adapter 参数（模型容量变大），性能提升是预料之中的。NCA 的价值在于测试"一致性约束方向是否有效"，而不是说 NCA 本身是最优方案。
+2. **MAE300 仍然是轻噪声下更稳的 baseline**：MLP clean 0.925，与 JEPA300 MLP 0.927 接近；但 σ=0.05 下 MAE300 MLP 0.786，高于 JEPA300 MLP 0.678。
 
-![Exp6 NCA main result](results/paper_figures/fig17_exp6_nca_main.png)
-
-| 模型 | 方法 | Clean AUROC | Noise 0.05 AUROC | Noise 0.10 AUROC |
-|---|---|---|---|---|
-| I-JEPA-H/95 | linear probe | 0.9105 | 0.7647 | 0.6336 |
-| I-JEPA-H/95 | robust probe | 0.9115 | 0.8496 | 0.7032 |
-| I-JEPA-H/95 | NCA | 0.8610 | **0.8705** | **0.7967** |
-| I-JEPA-H/201 | linear probe | **0.9162** | 0.6434 | 0.5928 |
-| I-JEPA-H/201 | robust probe | **0.9162** | 0.8048 | 0.6614 |
-| I-JEPA-H/201 | NCA | 0.8621 | **0.8617** | **0.8035** |
-| MAE-H/97 | linear probe | 0.8951 | 0.7887 | 0.6486 |
-| MAE-H/97 | robust probe | 0.8966 | 0.8443 | 0.6692 |
-| MAE-H/97 | NCA | **0.9327** | **0.9204** | **0.8861** |
-| MAE-H/300 | linear probe | 0.8909 | 0.7711 | 0.6182 |
-| MAE-H/300 | robust probe | 0.8906 | 0.8242 | 0.6456 |
-| MAE-H/300 | NCA | **0.9223** | **0.9110** | **0.8721** |
-
-![NCA tradeoff](results/paper_figures/fig18_exp6_nca_tradeoff.png)
-
-**关键观察（不 overclaim）**：
-
-1. NCA 显著提升 noisy AUROC。I-JEPA-H/201 noise 0.10 从 0.5928→0.8035（+0.211）；MAE-H/300 noise 0.10 从 0.6182→0.8721（+0.254）。说明噪声退化不是完全不可逆的。
-
-2. **但 I-JEPA 有明显的 clean-robustness tradeoff**。I-JEPA-H/201 clean 从 0.9162→0.8621（−0.054）。NCA 把 noisy 性能拉回来是以牺牲 clean 性能为代价的。
-
-3. MAE 从 NCA 中获益更稳定——clean + noisy 三条件全提升。这提示 MAE 的表征中可能保留了信息，但 linear probe 无法充分读出。
-
-4. **NCA 没有改变 raw encoder drift**。I-JEPA-H/201 noise 0.05 下 encoder 层 drift 仍是 0.874，但 adapter 层 drift 被压到 0.010。NCA 的机制是"在 encoder 之后学一个更稳定的映射"，不是"修复 encoder"。
-
-![NCA ablation](results/paper_figures/fig19_exp6_nca_ablation.png)
-
-I-JEPA-H/201 的 ablation 显示：去掉 representation consistency 后，adapter drift 明显变大，noise 0.05 AUROC 也从 0.8617 降到 0.8502；去掉 prediction consistency 的影响相对温和。
-
-![NCA per-class gain](results/paper_figures/fig20_exp6_per_class_noise_gain.png)
-
-**NCA 的定位**：它证明了"clean/noisy consistency 是有用的训练信号"，但 NCA 本身：
-- 加了可训练参数（模型容量变大）
-- 没有解决 encoder 层的问题
-- 对 I-JEPA 有 clean tradeoff
-- 更适合作为"方向验证"而非最终方案
-
-真正的改进应该把一致性约束前移到预训练阶段。
+3. **Exp7 的结论需要更新**：JEPA300 的问题不能再简单写成"MLP 使 I-JEPA 更差"。更准确的说法是：探针容量可以部分缓解 JEPA300 的轻噪声分类边界，但不能降低 encoder drift，因此问题仍然主要来自编码器表征。
 
 ---
 
-## 6. 综合讨论：两条线合起来告诉我们什么
+### 2.4 Exp8 — 部分微调：重新训练能修复吗？
 
-### 6.1 I-JEPA 的完整行为画像
+> **另一个夯实编码器层面问题的关键实验。**
 
-| 维度 | 观察 | 证据强度 |
-|---|---|---|
-| Clean 分类 | 强于 MAE（H/201: 0.9162），longer training 有正向趋势 | 强（4 模型，同一 split） |
-| 亮度/对比度鲁棒性 | 尚可，但 I-JEPA-H/201 在极端 contrast 下漂移比 H/95 大 | 中（单个 split） |
-| 高频/噪声鲁棒性 | 弱，encoder 层 drift 达 0.87-0.96，中频 band corruption 下 AUROC 跌至 0.61 | 强（Exp1+Exp3 交叉验证，multi-seed） |
-| 病灶统计敏感 | 有正向响应（lesion drop 正，delta 正且显著） | 中（Exp2b 单个方法） |
-| 病灶空间精确 | 弱，saliency 不在 bbox 内（soft IoU ~0.003） | 中（Exp4，只做了单层 saliency） |
+**方法**：解冻编码器最后 2 个 ViT 块 + LayerNorm（~25M 参数），在 clean 数据上微调 15 epochs（lr_encoder=1e-5, lr_head=1e-4）。
 
-### 6.2 I-JEPA 的核心矛盾
+**完整高斯噪声曲线对比**：
 
-I-JEPA 的强项和弱项可能来自**同一个源头**：
+| 模型 | 方法 | Clean | σ=0.05 | σ=0.10 | σ=0.20 | σ=0.30 |
+|------|------|:-----:|:------:|:------:|:------:|:------:|
+| **I-JEPA-H/300** | Frozen+Linear | 0.910 | 0.641 | 0.589 | 0.571 | 0.553 |
+| **I-JEPA-H/300** | **Partial FT** | 0.935 | **0.625** | 0.587 | 0.555 | 0.534 |
+| I-JEPA-H/201 | Frozen+Linear | 0.916 | 0.643 | 0.596 | 0.586 | 0.588 |
+| I-JEPA-H/201 | Partial FT | 0.937 | 0.600 | 0.555 | 0.515 | 0.495 |
+| **MAE-H/300** | Frozen+Linear | 0.891 | 0.777 | 0.618 | 0.490 | 0.485 |
+| **MAE-H/300** | **Partial FT** | 0.949 | **0.820** | 0.588 | 0.462 | 0.485 |
 
-- I-JEPA 预测的是 target encoder 的高层 latent representation，不重建像素。这让它学到了更抽象的语义结构（clean AUROC 高，病灶响应方向有意义）。
-- 但在胸片里，关键的判别信息可能就在局部纹理、边缘和密度模式中——这些恰好是中高频信息。JEPA 依赖这些来构建高层语义预测，因此当这些被噪声破坏时，表征大幅漂移。
-- 病灶方面：JEPA 学到了"这个大致的解剖区域 + 上下文"是有意义的，但它没有信号去学习精确边界，因为预测目标本身就是高层表示，不需要边界精度。
+**余弦漂移对比（Partial FT 后）**：
 
-**一句话**：I-JEPA 在全局语义建模上有优势，但在局部细粒度信号的处理上存在张力。这不是 bug，而是 JEPA "预测高层表示而非像素"这个设计哲学在医学影像领域暴露出的特征。
+| 模型 | σ=0.05 | σ=0.10 | σ=0.20 | σ=0.30 |
+|------|:------:|:------:|:------:|:------:|
+| I-JEPA-H/300 Partial FT | **0.780** | 0.868 | 0.775 | 0.680 |
+| MAE-H/300 Partial FT | 0.689 | 0.848 | 0.764 | 0.760 |
 
-### 6.3 MAE 的位置
+**核心发现**：
 
-MAE 更像一个"对局部纹理不那么敏感、但全局语义也较弱"的 baseline：
+1. **部分微调不能修复 JEPA300 的轻噪声脆性**：clean 性能从 0.910 提升到 0.935，但 σ=0.05 AUROC 仍只有 0.625，低于 frozen linear 的 0.641；drift 仍高达 0.780。微调改善了 clean 决策边界，却没有消除噪声表征跳变。
 
-- 噪声下 drift 小（~0.14-0.17），因为它重建像素，学到的可能是更平滑、更低频的结构信息
-- 但 clean 分类和病灶响应都不如 I-JEPA
-- Token 层对遮挡 artifact 极其敏感（drift ~0.67），因为 MAE 训练时见过大量 masked patches，对 zero-value patch 有强烈反应
-- 训练 300 epoch 没有让这些模式发生本质改变
+2. **MAE300 从微调中获得更强轻噪声性能**：clean 达 0.949，σ=0.05 AUROC 0.820，显著高于 JEPA300 的 0.625。但 MAE300 在 σ=0.20/0.30 下仍会严重退化。
 
-MAE 的存在帮助我们理解：JEPA 的优势和劣势是 JEPA 特有的 tradeoff，不是所有 SSL 方法共有的。
-
----
-
-## 7. 当前未解决的关键问题
-
-按优先级排列：
-
-1. **中高频依赖是 JEPA 架构的必然结果还是训练不足？** 目前 I-JEPA 只有 201 ep（没有 300ep checkpoint），无法判断更长训练会不会缓解还是加剧这个问题。
-
-2. **病灶响应的空间精度不够，是 encoder 的问题还是 probe 的问题？** 当前只测了 global average pooling + linear probe。如果换 attention pooling 或 nonlinear adapter，空间对齐结果可能不同。
-
-3. **遮挡实验的 artifact effect 有多大？** 遮挡引入了 edge 和零值区域。MAE 对这些特别敏感（token drift ~0.67）。需要用更干净的 ablation 方法（如 inpainting 或不同填充值）。
-
-4. **I-JEPA clean 优势和噪声脆弱性是否可以解耦？** NCA 的结果暗示这不容易（clean 下降 0.054 换 noisy 上升 0.21）。有没有保留 clean 的同时降低 noise drift 的方法？
-
-5. **这些发现对数据集是否特异？** 目前只有一个下游数据集（VinDr-CXR）。疾病谱、数据分布、标注质量都可能影响结论。
-
-6. **病灶"统计敏感性"对临床够不够？** 如果模型看大致区域+上下文就能做出正确诊断，精确定位是不是不需要？（这是医学问题，不是技术问题。）
+3. **Exp7 + Exp8 共同结论**：更大的 MLP 可以部分改善 JEPA300 的轻噪声分类结果，但 partial FT 不能进一步修复；两者都没有降低 encoder drift。因此噪声问题仍应从预训练目标或后训练一致性约束解决。
 
 ---
 
-## 8. 下一步：基于观察提出 JEPA 改进方向
+### 2.5 Exp5/Exp6 — 缓解方案
 
-以下是基于两条诊断线的观察提出的可能改进方向，按改动成本从低到高排列。
+#### Exp5：轻量级预处理
 
-### 8.1 下游 lesion-aware consistency（低成本先验证）
+输入图像做去噪预处理（中值滤波 / 高斯平滑）后再编码。σ=0.05 时有轻微帮助，σ=0.10 时无效。预处理是"治标不治本"——噪声已经在编码器内部被放大。
 
-- **动机**：Line 2 发现病灶响应是粗粒度的，saliency 不精确
-- **思路**：在下游 probe/adapter 训练时加入 bbox-aware crop consistency（crop 病灶区域 vs 非病灶区域，约束表示差异）
-- **风险**：bbox 标注不完整可能导致负采样错误
-- **优势**：不需要重新预训练
+#### Exp6：噪声一致性适配器（NCA）
 
-### 8.2 预训练阶段加入 perturbation consistency
+冻结编码器上插入可训练的残差 MLP 适配器（ResidualAdapterClassifier），用一致性损失训练：clean 预测 ≈ augmented 预测 + 表征对齐。
 
-- **动机**：Line 1 发现 embedding 在噪声下大幅漂移
-- **思路**：在 I-JEPA 预训练中，对同一张图的 clean 和 perturbed 版本，约束 context encoder 输出或 predictor 输出保持一致
-- **需要回答的问题**：在 encoder 层还是 predictor 层做约束？扰动强度怎么选？会不会损害 clean semantic learning？
-- **风险**：可能削弱 JEPA 对有用细粒度特征的敏感性
+**I-JEPA NCA 完整噪声谱（冻结编码器 + 残差 MLP 适配器）**：
 
-### 8.3 修改 JEPA 的 target block 采样策略
+| 模型 | 配置 | Clean | σ=0.05 | σ=0.10 | σ=0.20 | σ=0.30 |
+|------|------|:-----:|:------:|:------:|:------:|:------:|
+| I-JEPA-H/201 | Linear (基线) | 0.916 | 0.643 | 0.596 | 0.586 | 0.588 |
+| I-JEPA-H/201 | **NCA** | 0.862 | 0.860 | 0.804 | 0.726 | 0.644 |
+| I-JEPA-H/95 | Linear (基线) | 0.911 | 0.762 | 0.631 | 0.541 | 0.542 |
+| I-JEPA-H/95 | **NCA** | 0.861 | 0.868 | 0.799 | 0.721 | 0.683 |
 
-- **动机**：Line 2 发现病灶响应粗粒度
-- **思路**：引入多尺度 target block（含更小、更局部的 target），或让 predictor 同时预测 patch-level 和 region-level 表示
-- **风险**：过小的 target 可能让任务退化到 texture completion
+**MAE NCA 对比**（σ=0.20 和 0.30 的 NCA 数据暂缺）：
 
-### 8.4 预训练中引入频率感知的 data augmentation
+| 模型 | 配置 | Clean | σ=0.05 | σ=0.10 |
+|------|------|:-----:|:------:|:------:|
+| **MAE-H/300** | Linear (基线) | 0.891 | 0.777 | 0.618 |
+| **MAE-H/300** | **NCA** | 0.922 | 0.911 | 0.872 |
 
-- **动机**：Exp3 发现中高频依赖
-- **思路**：预训练中随机对 context block 做 frequency band augmentation，迫使模型不依赖单一频率带
-- **风险**：类似 data augmentation，可能只是表面缓解
+**适配器漂移 vs 原始漂移（I-JEPA-H/201）**：
 
-### 8.5 验证其他 JEPA 变体
+| 指标 | σ=0.05 | σ=0.10 | σ=0.20 | σ=0.30 |
+|------|:------:|:------:|:------:|:------:|
+| 原始编码器 Drift | 0.873 | 0.963 | 0.960 | 0.953 |
+| NCA 适配器 Drift | **0.010** | **0.011** | **0.011** | **0.010** |
+| 压缩比 | 87× | 88× | 87× | 95× |
 
-- **动机**：目前只测试了 I-JEPA
-- **思路**：如果条件允许，测试 MC-JEPA 或 V-JEPA 在胸片上的行为，帮助区分"JEPA 架构共性"和"I-JEPA 设计选择"
+**核心发现**：
 
----
+1. **NCA 的适配器漂移几乎为零（~0.01）**，与噪声强度完全无关。原始编码器的表征在不同噪声下剧烈漂移（0.87–0.96），但经过适配器的残差 MLP 变换后，噪声表征和 clean 表征在适配器输出空间几乎重合。适配器将一个"断裂"的表征流形"拉平"了。
 
-## 9. 答辩用核心叙事（草稿）
+2. **但 clean 性能有 tradeoff**（−0.054）。适配器以降低 clean 判别力为代价换取噪声一致性。NCA 的输出空间是 clean 和噪声之间的"妥协点"——既不完全等于 clean 的最优决策边界，也不被噪声破坏。
 
-> 我没有急着下结论说 I-JEPA 好还是 MAE 好。我沿着两条线做了诊断。
->
-> **鲁棒性线（Exp1→Exp3→Exp5→Exp6）**：I-JEPA 的 clean 表征确实更强（AUROC 0.9162），但它对 Gaussian noise 和中/高频扰动非常敏感。σ=0.05 的轻噪声下，I-JEPA-H/201 AUROC 从 0.9162 跌到 0.6431（drop=0.273），embedding drift 达 0.87。Exp3 把这个脆弱性定位到了中高频段——中频 band corruption 下 AUROC 只剩 0.614。Exp5 的 denoise 和 robust probe 能拉回一部分，但不能降低 encoder drift。Exp6 的 NCA 在下游做一致性适配可以把 noisy AUROC 拉回来，但这是加参数换来的（clean 从 0.9162 跌到 0.8621），encoder 本身仍然不稳定。
->
-> **病灶敏感性线（Exp2b→Exp4）**：I-JEPA 对病灶区域有正向响应——遮挡病灶确实降低对应类别 logit（delta=+0.21，CI 不跨零）。但 Exp4 显示这个响应不是精确空间对齐的——saliency soft IoU 只有 0.003，预测证据分散在病灶周围和上下文中。所以 JEPA 学到的是粗粒度的区域+上下文敏感性，不是精确病灶定位。
->
-> 两条线合起来指向同一个核心矛盾：JEPA 通过预测高层表示学到了很强的全局语义，但在胸片里，关键的判别证据存在于它不擅长的局部细粒度信号中。后续改进的重点是在保留 I-JEPA 全局语义优势的前提下，增强其对局部信号的空间精度和噪声稳定性。
+3. **MAE 的 NCA 完全不同**：clean 和噪声同时提升（clean +0.031, σ=0.10 +0.254）。MAE 的表征空间天然光滑，适配器只需微调即可同时改善两者。
 
 ---
 
-## 10. 附录：图表索引
+## 3. 诊断线 B：病灶敏感性
 
-| 图 | 内容 |
-|---|---|
-| Fig0 | 不同扰动对原始胸片的视觉影响 |
-| Fig1 | Exp1 常规扰动鲁棒性矩阵 |
-| Fig2 | AUROC drop 与 representation drift |
-| Table 1 | Complete Exp1 robustness summary |
-| Fig9 | Exp2b 类别对齐遮挡 overall 结果 |
-| Fig10 | Exp2b localized vs diffuse/global 分组 |
-| Fig11 | Exp2b per-class heatmap |
-| Fig12 | Exp2b bbox area response |
-| Fig13 | Exp2b qualitative cases |
-| Fig14a | Exp3 frequency perturbation visual examples |
-| Fig14 | Exp3 frequency sensitivity by perturbation type |
-| Fig14b | Exp3 AUROC drop vs representation drift |
-| Table 3 | Complete Exp3 frequency sensitivity summary |
-| Fig15 | Exp4 token drift 与 saliency alignment |
-| Fig16 | Exp5 lightweight mitigation |
-| Fig17 | Exp6 NCA main result |
-| Fig18 | Exp6 clean-robustness tradeoff |
-| Fig19 | Exp6 ablation |
-| Fig20 | Exp6 per-class noise gain |
+> **核心问题**：I-JEPA 对应该被编码的临床语义（病灶区域）是否敏感？和 MAE 比如何？
 
-旧版 Exp2a 图 Fig3-Fig8 保留为补充材料。
+### 3.1 Exp2b — 分类对齐遮挡实验
+
+**方法**：分析单元为 `(image_id, class_name)` 对。遮挡目标类别的病灶边界框（lesion occlusion），与 5 个匹配的对照遮挡（control，等面积非病灶区域）比较。指标 **Delta Logit Drop = Lesion Drop − Control Drop**。正值表示病灶遮挡比对照遮挡更显著降低了该类别的预测 logit，即编码器确实利用了病灶区域的信息。
+
+**I-JEPA vs MAE 对比**：
+
+| 模型 | Delta Logit Drop | 95% CI | p |
+|------|:----------------:|--------|:--:|
+| **I-JEPA-H/300** | **+0.222** | [0.199, 0.247] | *** |
+| I-JEPA-H/201 | +0.195 | [0.167, 0.223] | *** |
+| I-JEPA-H/95 | +0.190 | [0.161, 0.220] | *** |
+| MAE-H/97 | +0.066 | [0.053, 0.078] | *** |
+| MAE-H/300 | +0.039 | [0.025, 0.053] | *** |
+
+**核心发现**：
+
+1. **JEPA300 的病灶敏感性强于 MAE300 约 5.7 倍**：遮挡病灶区域使 JEPA300 的 target-class logit 下降更明显（delta +0.222），而 MAE300 只有 +0.039。JEPA300 虽然没有改善噪声鲁棒性，但保留并增强了局部病灶语义敏感性。
+
+2. **MAE 对遮挡伪影比对病灶内容更敏感**：MAE 在遮挡后 logit 经常是**负值**（遮挡反而提升预测），说明 MAE 主要检测到了"灰色方块"这个像素级伪影，而非被遮挡的病灶语义。
+
+3. **局部化疾病信号更强**："结节/肿块"、"钙化"、"实变"等局部化疾病的 delta 显著大于"心脏肥大"、"胸腔积液"等弥漫性疾病。
+
+4. **更长 JEPA 训练没有削弱病灶信号**：JEPA300 delta +0.222，高于 JEPA201 的 +0.195；与 MAE300 的方向相反，MAE 从 97 到 300 epoch 病灶 delta 下降（+0.066 → +0.039）。
+
+---
+
+### 3.2 Exp4 — Token 漂移与显著性分析
+
+**方法**：逐 token（196 个 patch）分析嵌入变化和梯度×激活显著性，测量与病灶边界框的对齐程度。
+
+**关键结果**：
+
+| 指标 | I-JEPA-H/300 | MAE-H/300 |
+|------|:-----------:|:--------:|
+| 噪声 Token 漂移 / 表征漂移 | **高**（Exp1 σ=0.05 drift 0.755） | 低（0.169） |
+| 病灶遮挡响应 | **强**（Exp2b delta +0.222） | 弱（+0.039） |
+| 对照遮挡响应 | 明显低于病灶遮挡 | 与病灶遮挡差距小 |
+
+> 注：JEPA300 Exp4 已完成并写入 `results/exp4_mechanism_ijepa_h300/`。本节只保留与主结论直接相关的机制摘要；具体逐样本结果见 `mechanism_per_sample.csv`。
+
+**核心发现**：
+
+1. **I-JEPA 的 token 对两类扰动有质的不同**：噪声 → 全局 token 剧烈漂移（0.89）；病灶遮挡 → 仅局部 token 轻微漂移（0.04）。I-JEPA 的 token 表征具备**局部鲁棒性**——遮挡只影响被遮挡区域的 token，不影响其他 token。
+
+2. **MAE 对两类扰动"一视同仁"**：噪声和遮挡都导致 token 漂移约 0.67。MAE 不区分"噪声导致的像素变化"和"遮挡导致的像素变化"——对其而言都是像素重建目标下的误差信号。
+
+3. **两种模型的显著性-边界框对齐都不强**，说明预测证据并不精确聚集在标注框内。这可能反映了 ViT 的注意力分散特性，也可能说明分类信息确实分布在更大范围的上下文区域。Soft IoU 数值在缺少 random baseline 前不作为定量证据。
+
+---
+
+## 4. 后训练改进分析（Golden Checkpoints）
+
+> v4 在 v3.1（I-JEPA-H/201）基础上继续训练；v5/v6 均从 v4 ep50 warm-start，因此都继承了 v4 的不对称噪声训练。目标是消除噪声脆性同时保留病灶敏感性。
+
+### 4.1 完整噪声鲁棒性曲线：脆性阈值被推移，而非消除
+
+**Exp1 全噪声谱（线性探针）**：
+
+| 模型 | Clean | σ=0.05 | σ=0.10 | σ=0.20 | σ=0.30 |
+|------|:-----:|:------:|:------:|:------:|:------:|
+| v3.1 (基线) | 0.916 | **0.643** | 0.596 | 0.586 | 0.588 |
+| v4 (+noise) | 0.918 | **0.906** | 0.883 | 0.713 | 0.513 |
+| v5 (+reg) | 0.930 | **0.920** | 0.897 | **0.556** | 0.550 |
+| v6 (+vicreg) | 0.916 | **0.906** | 0.889 | **0.802** | 0.529 |
+| *MAE-H/300* | *0.891* | *0.777* | *0.618* | *0.490* | *0.485* |
+
+**余弦漂移全噪声谱**：
+
+| 模型 | σ=0.05 | σ=0.10 | σ=0.20 | σ=0.30 |
+|------|:------:|:------:|:------:|:------:|
+| v3.1 (基线) | **0.872** | 0.963 | 0.957 | 0.956 |
+| v4 (+noise) | 0.017 | 0.049 | **0.489** | 0.777 |
+| v5 (+reg) | 0.016 | 0.052 | **0.781** | 0.811 |
+| v6 (+vicreg) | 0.010 | 0.017 | **0.064** | 0.212 |
+| *MAE-H/300* | *0.169* | *0.319* | *0.339* | *0.337* |
+
+**以 Drop 和 Drift 可视化脆性阈值的位置**：
+
+```
+噪声强度:    σ=0.05        σ=0.10        σ=0.20        σ=0.30
+            ─────         ─────         ─────         ─────
+v3.1:       ████████████  ████████████  ████████████  ████████████  ← 在 σ=0.05 就触底
+v4:         ▏             ▏             ██████        ████████████  ← 阈值在 σ≈0.15
+v5:         ▏             ▏             ████████████  ████████████  ← 阈值在 σ≈0.12（悬崖！）
+v6:         ▏             ▏             ▏             █████         ← 阈值在 σ≈0.25（最平缓）
+MAE-300:    ██            ████          ████████      ████████████  ← 全程渐进
+```
+
+**核心发现——比"脆性消除"更微妙的真相**：
+
+1. **三种后训练策略都没有真正"消除"脆性阈值，而是将它推移到了更高的噪声水平**。原 I-JEPA 的阈值在 σ≈0.03（极轻噪声就崩溃）；后训练将其推迟到了 σ≈0.12–0.25。
+
+2. **v5 (Register Tokens + 紧 mask) 有一个极其陡峭的悬崖**：在 σ≤0.10 时表现最好（AUROC=0.920, drift=0.016），但在 σ=0.20 时突然崩溃（AUROC=0.556, drift=0.781）——比原 I-JEPA 在 σ=0.05 时的崩溃更剧烈。真实原因不是空间形变，而是 v5 继承了 v4 的噪声不变性，同时紧 mask 让 encoder 只看更少 patch，模型更依赖局部纹理推断；当大噪声破坏局部高频纹理后，表征会迅速失去锚点。
+
+3. **v6 (V4 + patch-level var/cov 正则) 有最平滑的退化曲线**：σ=0.20 时 drift 仅 0.064（v4=0.489, v5=0.781），AUROC=0.802（v4=0.713, v5=0.556）。需要注意，v6 不是标准 2-view VICReg；实际是 I-JEPA 主损失上叠加小权重 var/cov 辅助项，训练后期主要是 cov 项在工作。去相关目标让表征空间更接近各向同性，因此没有明显单一噪声敏感方向。**代价是病灶敏感性几乎归零**（见 4.2）。
+
+4. **v4 (噪声增强) 居中**：阈值在 σ≈0.15，退化速度介于 v5 和 v6 之间。直接噪声增强是最"朴素"的方案，效果也在中间。
+
+**Exp8 部分微调后的漂移也验证了同样的模式**：
+
+| 模型 | σ=0.05 | σ=0.10 | σ=0.20 | σ=0.30 | 悬崖位置 |
+|------|:------:|:------:|:------:|:------:|:--------:|
+| v4 FT | 0.037 | 0.139 | **0.599** | 0.761 | σ≈0.15 |
+| v5 FT | 0.040 | 0.157 | **0.917** | 0.877 | σ≈0.12 (极端) |
+| v6 FT | 0.019 | 0.084 | **0.233** | 0.465 | σ≈0.25 (最远) |
+| MAE FT | 0.333 | 0.644 | 0.715 | 0.744 | 无悬崖 |
+
+> *注*：v5 FT 的 drift 在 σ=0.30 (0.877) 低于 σ=0.20 (0.917)，不是单调曲线。这里更合理的解释是 drift 已接近正交饱和区，±0.04 量级内可能包含测量噪声；也可能是极端噪声下 encoder 坍缩到一个相对稳定的 ultra-noisy 模式。AUROC 已接近 random，不影响"v5 在 σ≥0.20 已失效"的结论。
+
+---
+
+### 4.2 病灶敏感性对比
+
+| 模型 | Delta Logit | 95% CI | vs 基线 | 病灶敏感性 |
+|------|:-----------:|--------|:-------:|:----------:|
+| v3.1 (基线) | **+0.195** | [0.167, 0.223] | — | ★★★★★ |
+| v4 (+noise) | +0.126 | [0.104, 0.148] | −35% | ★★★☆☆ |
+| **v5 (+reg)** | **+0.177** | [0.155, 0.200] | **−9%** | ★★★★☆ |
+| v6 (+vicreg) | +0.040 | [0.026, 0.055] | −79% | ★☆☆☆☆ |
+| *MAE-H/300* | *+0.039* | *[0.025, 0.053]* | *—* | *★★☆☆☆* |
+
+> **指标选择说明**：本报告采用 Delta Logit Drop（5 matched controls），衡量 global readout 后病灶遮挡对分类 logit 的影响。另一个合理指标是 patch-level Δcos，衡量 encoder token 层的局部病灶特异性。V5 在二者上排名相反：Delta Logit 中 V5 仅比 v3.1 低 9%，但上游 patch-level Δcos 中 V5 下降约 49%。这不是矛盾，而是说明 V5 的 register + tight mask 可能改善 global readout，同时削弱单个 patch 的病灶特异性；若下游是 dense/定位任务，应优先参考 patch-level 指标。
+
+---
+
+### 4.3 三种策略的综合评价
+
+将噪声鲁棒性（x 轴：脆性阈值位置、悬崖陡峭度）和病灶敏感性（y 轴：delta logit）放在一起：
+
+```
+病灶敏感性
+    ↑
+0.20 ─                ● v3.1 (好但脆弱)
+    │
+0.18 ─                          ★ v5 (两全其美，前提是σ≤0.10)
+    │
+0.14 ─
+    │
+0.12 ─          ● v4 (平衡，阈值~0.15)
+    │
+0.08 ─
+    │
+0.04 ─                      ● v6 (最鲁棒但语义丢失)
+    │                              MAE ●
+0.00 ─┼─────────┼─────────┼─────────┼─────────→ 噪声鲁棒性
+      脆(σ=0.05)  中(σ=0.10)  强(σ=0.20)  极强(σ=0.30)
+                              (脆性阈值位置)
+```
+
+**分场景推荐**：
+
+| 场景 | 推荐模型 | 理由 |
+|------|---------|------|
+| **日常应用（低噪声、global readout）** | **v5 (Register Tokens + 紧 mask)** | clean 与 σ≤0.10 下表现最好，Delta Logit 病灶敏感性保留较好 |
+| **高噪声环境** | v6 (VICReg) | 大噪声下 AUROC 最高，但病灶敏感性几乎丧失 |
+| **综合平衡** | v4 (NoiseAug) | 各项指标居中，没有致命缺陷 |
+| **追求极致语义** | v3.1 (原始 I-JEPA) | 病灶敏感性最强，接受脆性 |
+
+---
+
+## 5. 综合讨论
+
+### 5.1 I-JEPA 的双面性：同一个设计哲学的两面
+
+I-JEPA 的设计——预测高层潜在表示而非像素——导致了两个相反的行为：
+
+| | 优势面 | 劣势面 |
+|------|------|------|
+| **噪声** | — | 中高频纹理脆性（Exp3 drift 0.87） |
+| **病灶** | JEPA300 病灶敏感性更强（Exp2b delta +0.222） | — |
+| **编码器（Exp7/Exp8 证伪）** | Clean 性能优秀（JEPA300 linear 0.910, MLP 0.927, partial FT 0.935） | MLP 可缓解分类边界，但 σ=0.05 drift 仍约 0.756；partial FT 后 drift 仍 0.780，说明问题来自编码器表征而非探针容量 |
+| **根源** | 学会了"有意义"的纹理特征 | 但当纹理被破坏时完全失去方向 |
+
+**本质上**：I-JEPA 对中高频纹理的依赖，同时产生了"病灶敏感性"和"噪声脆性"。病灶和噪声在该频段共享了表征通道。
+
+### 5.2 为什么 V5 是小噪声下的最优解
+
+V5 的 `+reg` 指 **Register Tokens**，不是 image registration。它真正包含三件事：
+
+- 继承 v4 的 context-target 不对称噪声训练，因此 σ_train 范围内的噪声仍是分布内扰动。
+- 加 4 个 DINOv2 风格 register token，给 ViT-H 一个吸收 high-norm artefact token 的通道，使 mean-pool/global readout 更干净。
+- 收紧 mask 策略：encoder 只看 65-85% patches，predictor 处理更多、更大的 target block，强迫模型从更少局部证据中完成预测。
+
+这解释了为什么 V5 在 σ≤0.10 下最强：v4 噪声训练提供低噪声不变性，register token 改善 global readout，紧 mask 增强 fine-grained discrimination。因此在 clean、σ=0.05、σ=0.10 上，V5 都略优于 V4。
+
+**为什么 V5 在 σ=0.20 时突然崩溃**：紧 mask 让 encoder 学到"少量局部纹理 → 全局推断"的策略。这个策略在 clean 与轻噪声下有效，但当大噪声破坏局部高频纹理后，模型失去可用证据，表征迅速坍塌。也就是说，V5 的悬崖主要来自 tight mask 带来的局部纹理依赖，而不是 registration/空间形变。
+
+### 5.3 为什么 V6 在大噪声下 drift 最小但病灶敏感性退化
+
+V6 不是标准 2-view VICReg。实际损失结构是：
+
+```
+L_total = L_jepa
+        + 1.00 * L_var(z_student)
+        + 0.04 * L_cov(z_student)
+```
+
+这里没有独立的 invariance loss，也没有两个 view 的 VICReg 对齐；invariance 仍由 I-JEPA 的 Smooth-L1 student-target 匹配承担。训练日志显示，var hinge 到 ep20 左右已经饱和为 0，后期主要是 cov 项以很小权重持续工作。
+
+cov 去相关让表征空间更接近各向同性：噪声扰动不再集中打穿某个特定方向，因此 σ=0.20 时 drift 只有 0.064，是四代中最小的。但代价也很明确：cov 项不区分"冗余相关性"和"有用相关性"。医学影像中的病灶通常依赖多个特征维度协同激活，cov 正则会把这类有意义的协同也削弱掉。因此 V6 的 Delta Logit 从 V4 的 +0.126 降到 +0.040，几乎退化到 MAE-H/300 水平。
+
+所以 V6 的结论应写成：**它显著改善高噪声 drift 和 σ=0.20 AUROC，但这种改善来自表征去相关的强约束，并以病灶敏感性大幅退化为代价**。
+
+### 5.4 局限性
+
+1. **评估非官方测试集**：VinDr-CXR 官方 test 标注未公开，使用从 train 确定性划分的 held-out 集。
+2. **边界框不是完美的病灶掩码**：显著性与 bbox 对齐不强可能部分反映标注的局限性；Soft IoU 数值在补 random baseline 前不宜单独解释。
+3. **单一评估数据集**：所有下游评估在 VinDr-CXR 上，跨数据集迁移性未知。
+4. **计算量不对等**：后训练 epoch 数不同（50/60/40），且 MAE 的像素重建比 I-JEPA 更昂贵。
+
+---
+
+## 6. 关键数据速查表
+
+### 6.1 完整高斯噪声鲁棒性（AUROC）
+
+| 模型 | Clean | σ=0.05 | σ=0.10 | σ=0.20 | σ=0.30 |
+|------|:-----:|:------:|:------:|:------:|:------:|
+| **I-JEPA-H/300** | **0.910** | 0.641 | 0.589 | 0.571 | 0.553 |
+| I-JEPA-H/201 (v3.1) | 0.916 | 0.643 | 0.596 | 0.586 | 0.588 |
+| I-JEPA-H/95 | 0.911 | 0.762 | 0.631 | 0.541 | 0.542 |
+| **v4 (+noise)** | 0.918 | **0.906** | 0.883 | 0.713 | 0.513 |
+| **v5 (+reg)** | 0.930 | **0.920** | 0.897 | 0.556 | 0.550 |
+| **v6 (+vicreg)** | 0.916 | **0.906** | 0.889 | **0.802** | 0.529 |
+| MAE-H/300 | 0.891 | 0.777 | 0.618 | 0.490 | 0.485 |
+
+### 6.2 完整余弦漂移
+
+| 模型 | σ=0.05 | σ=0.10 | σ=0.20 | σ=0.30 |
+|------|:------:|:------:|:------:|:------:|
+| I-JEPA-H/300 | 0.755 | 0.895 | 0.871 | 0.824 |
+| I-JEPA-H/201 | 0.872 | 0.963 | 0.957 | 0.956 |
+| v4 (+noise) | 0.017 | 0.049 | 0.489 | 0.777 |
+| v5 (+reg) | 0.016 | 0.052 | 0.781 | 0.811 |
+| v6 (+vicreg) | 0.010 | 0.017 | **0.064** | 0.212 |
+| MAE-H/300 | 0.169 | 0.319 | 0.339 | 0.337 |
+
+### 6.3 病灶敏感性
+
+| 模型 | Delta Logit | 95% CI | p |
+|------|:-----------:|--------|:--:|
+| **I-JEPA-H/300** | **+0.222** | [0.199, 0.247] | *** |
+| I-JEPA-H/201 (v3.1) | +0.195 | [0.167, 0.223] | *** |
+| v4 (+noise) | +0.126 | [0.104, 0.148] | *** |
+| v5 (+reg) | +0.177 | [0.155, 0.200] | *** |
+| v6 (+vicreg) | +0.040 | [0.026, 0.055] | *** |
+| MAE-H/97 | +0.066 | [0.053, 0.078] | *** |
+| MAE-H/300 | +0.039 | [0.025, 0.053] | *** |
+
+### 6.4 非线性和微调验证（σ=0.05 AUROC drop）
+
+| 模型 | Linear Drop | MLP Drop | Partial FT Drop | 结论 |
+|------|:----------:|:--------:|:---------------:|------|
+| I-JEPA-H/300 | −0.269 | −0.249 | −0.310 | MLP 可缓解分类边界，drift 仍高 |
+| I-JEPA-H/201 | −0.273 | **−0.458** | **−0.337** | 编码器层面问题 |
+| MAE-H/300 | −0.114 | −0.139 | −0.071 | 稳定 |
+| v4 (+noise) | −0.012 | −0.010 | −0.009 | 完全修复 |
+| v5 (+reg) | −0.010 | −0.011 | −0.010 | 完全修复 |
+| v6 (+vicreg) | −0.011 | −0.011 | −0.007 | 完全修复 |
+
+---
+
+## 附录：后训练策略原理
+
+### v4: 噪声增强（Noise Augmentation）
+
+```
+I-JEPA 继续训练，但输入加噪声：
+原始图 ──→ +噪声 ──→ 编码器 ──→ 预测 ──→ 和 clean 图的 target 表示做 loss
+```
+
+**逻辑**：强制编码器从噪声图中预测出和干净图一样的 target 表示。编码器必须学会忽略噪声——它会降低对"容易被噪声淹没"的纹理特征的依赖。
+
+**代价**：编码器不知道哪些纹理会变成病灶、哪些会变成噪声，它在整体性地"变钝"。
+
+### v5: Register Tokens + Tight Mask
+
+```
+V5 = V4（继承不对称噪声）+ Register Tokens + 紧 Mask
+
+patch tokens ──┐
+               ├── self-attention ──→ 剥离 register ──→ patch token 输出
+4 个 [REG] ────┘
+
+紧 mask:
+  enc_mask_scale  [0.85, 1.0] → [0.65, 0.85]
+  pred_mask_scale [0.15, 0.20] → [0.15, 0.25]
+  num_pred_masks  4 → 6
+  aspect_ratio    [0.75, 1.5] → [0.5, 2.0]
+```
+
+**逻辑**：`+reg` 指 DINOv2 风格 register token，不是图像配准。Register token 给大型 ViT 一个吸收 high-norm artefact token 的通道，让 global readout 更干净；紧 mask 则让模型从更少可见 patch 中完成更难预测，增强局部细粒度推断。
+
+**为什么对轻噪声有效**：V5 继承 V4 的不对称噪声训练，因此 σ≤0.10 基本仍在训练分布附近；register token 改善 pooling 后的全局表示，紧 mask 提高 clean 与轻噪声下的判别力。
+
+**代价**：紧 mask 加强了局部纹理依赖。大噪声破坏局部高频纹理后，模型缺少足够上下文恢复全局结构，因此在 σ=0.20 出现悬崖式崩溃。V5 在 Delta Logit 上保留 global-readout 病灶敏感性，但在 patch-level Δcos 上局部病灶特异性下降明显。
+
+### v6: V4 + patch-level variance / covariance 正则
+
+```
+V6 = V4（I-JEPA + 不对称噪声）
+     + 在 student encoder patch tokens 上加两项辅助正则:
+
+L_total = L_jepa
+        + 1.00 * L_var(z_student)
+        + 0.04 * L_cov(z_student)
+```
+
+**逻辑**：V6 不是标准 2-view VICReg，没有独立 invariance 项；invariance 由原本的 I-JEPA Smooth-L1 student-target loss 承担。var 项防止维度 collapse，cov 项降低 patch token 维度间相关性。实际训练中 var 项约 ep20 后饱和为 0，后期主要是小权重 cov 项在工作。
+
+**为什么大噪声下最好**：cov 去相关让表征空间更接近各向同性，噪声不再沿某个单一敏感方向造成巨大漂移，因此 σ=0.20 drift 最小、AUROC 最高。
+
+**为什么病灶敏感性丢失**：cov 项不区分"冗余相关性"和"病灶模式所需的有用相关性"。病灶往往需要多个维度协同编码；cov 正则会把这种协同也削弱掉。即使 cov_weight 只有 0.04，40 epoch 累积后仍足以把 V4 学到的病灶相关维度结构打散，使 Delta Logit 降到 MAE 级别。
+
+---
+
+> **下一步**：
+> - 探索 V5 的紧 mask 配置调温（例如 enc_mask_scale 从 [0.65, 0.85] 放宽到 [0.75, 0.90]），看能否保留 σ≤0.10 优势并推迟 σ=0.20 悬崖
+> - 在 ChestX-ray14、CheXpert 上做跨数据集验证
+> - 探索 V6 的 cov_weight 降阶或 selective decorrelation，避免把病灶维度协同当作冗余相关性抹掉

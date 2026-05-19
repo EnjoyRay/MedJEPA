@@ -109,10 +109,17 @@ def _build_ijepa_encoder(weights_path: str, device: torch.device) -> nn.Module:
     weight shapes (embed_dim: 768=base, 1024=large).
     """
     import sys, os
-    ijepa_root = os.path.join(os.path.dirname(__file__), '..', '..', '..',
-                               'zhaoyi', 'medical-i-jepa')
-    if ijepa_root not in sys.path:
-        sys.path.insert(0, ijepa_root)
+    candidate_roots = [
+        os.environ.get("IJEPA_SOURCE_ROOT", ""),
+        os.path.join(os.path.dirname(__file__), '..', '..', '..', 'zhaoyi', 'medical-i-jepa'),
+        "/home/uic2/zhaoyi/medical-i-jepa",
+        "/home/jchwang/ray/pretrained/ijepa/medical-i-jepa",
+        "/home/jchwang/ray/JEPA/pretrained/ijepa/medical-i-jepa",
+    ]
+    for ijepa_root in candidate_roots:
+        if ijepa_root and os.path.isdir(os.path.join(ijepa_root, "src")) and ijepa_root not in sys.path:
+            sys.path.insert(0, ijepa_root)
+            break
 
     from src.models.vision_transformer import vit_base, vit_large, vit_huge
 

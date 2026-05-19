@@ -155,22 +155,28 @@ def fig_noise_drop(df: pd.DataFrame, out: Path, model_order: list[str], prefix: 
     return path
 
 
-def fig_gap(df: pd.DataFrame, out: Path, prefix: str) -> Path:
+def fig_gap(df: pd.DataFrame, out: Path, prefix: str, model_order: list[str]) -> Path:
     clean = df[df["condition"] == "clean"]
+    jepa_model = next((m for m in model_order if m.startswith("I-JEPA-H/300")), None)
+    if jepa_model is None:
+        jepa_model = next((m for m in model_order if m.startswith("I-JEPA-H/")), "I-JEPA-H/201")
+    mae_model = next((m for m in model_order if m == "MAE-H/300"), "MAE-H/300")
     rows = []
     for method in METHOD_ORDER:
-        j = clean[(clean["model"] == "I-JEPA-H/201") & (clean["method"] == method)]
-        m = clean[(clean["model"] == "MAE-H/300") & (clean["method"] == method)]
+        j = clean[(clean["model"] == jepa_model) & (clean["method"] == method)]
+        m = clean[(clean["model"] == mae_model) & (clean["method"] == method)]
         if not j.empty and not m.empty:
             rows.append({"method": method, "gap": float(j.iloc[0]["macro_auroc"] - m.iloc[0]["macro_auroc"])})
     gap = pd.DataFrame(rows)
+    path = out / f"{prefix}fig23_mae_gap_decomposition.png"
+    if gap.empty:
+        return path
     fig, ax = plt.subplots(figsize=(5.8, 4.3))
     ax.bar(gap["method"], gap["gap"], color=[COLORS[m] for m in gap["method"]])
     ax.axhline(0, color="black", linewidth=1)
-    ax.set_ylabel("I-JEPA-H/201 AUROC - MAE-H/300 AUROC")
+    ax.set_ylabel(f"{jepa_model} AUROC - {mae_model} AUROC")
     ax.set_title("Figure 23. Does stronger adaptation close the MAE gap?")
     ax.grid(axis="y", alpha=0.25)
-    path = out / f"{prefix}fig23_mae_gap_decomposition.png"
     fig.savefig(path, dpi=240, bbox_inches="tight")
     plt.close(fig)
     return path
@@ -185,8 +191,8 @@ def main() -> None:
     df = _load_all(args, model_order)
     df.to_csv(out / f"{prefix}table_probe_capacity_long.csv", index=False)
     paths = [make_table(df, out, model_order, prefix), fig_clean_noise(df, out, model_order, prefix), fig_noise_drop(df, out, model_order, prefix)]
-    if {"I-JEPA-H/201", "MAE-H/300"}.issubset(set(model_order)):
-        paths.append(fig_gap(df, out, prefix))
+    if any(m.startswith("I-JEPA-H/") for m in model_order) and "MAE-H/300" in set(model_order):
+        paths.append(fig_gap(df, out, prefix, model_order))
     for path in paths:
         print(path)
 
