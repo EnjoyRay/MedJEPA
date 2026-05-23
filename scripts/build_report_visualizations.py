@@ -7,6 +7,8 @@ current fair-comparison matrix and writes report-ready PNGs.
 
 from __future__ import annotations
 
+import json
+import tarfile
 from pathlib import Path
 
 import matplotlib
@@ -17,6 +19,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from matplotlib.patches import Rectangle
+from PIL import Image
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -58,6 +62,8 @@ FREQ_ORDER = [
     "Band 0.45-1.00",
     "Low-pass 0.15",
 ]
+EXAMPLE_IMAGE_ID = "d0a8b798569ce701b96f52058e99e5f4"
+EXAMPLE_CLASS = "Pleural effusion"
 
 
 def setup_style() -> None:
@@ -87,6 +93,138 @@ def savefig(fig: plt.Figure, name: str) -> Path:
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
     return path
+
+
+def normalize_image(arr: np.ndarray) -> np.ndarray:
+    arr = arr.astype(np.float32)
+    if arr.max() > 1.0:
+        arr = arr / 255.0
+    low, high = np.percentile(arr, [0.5, 99.5])
+    return np.clip((arr - low) / max(high - low, 1e-6), 0.0, 1.0)
+
+
+def load_tar_image(image_id: str) -> np.ndarray:
+    image_rel = f"VinBigData_ChestXray/images_1024/train/{image_id}.png"
+    with tarfile.open(RESULTS.parent / "data" / "VinBigData_ChestXray.tar", "r") as tf:
+        with tf.extractfile(image_rel) as fileobj:
+            if fileobj is None:
+                raise FileNotFoundError(image_rel)
+            image = Image.open(fileobj).convert("L")
+            return normalize_image(np.asarray(image))
+
+
+def load_example_boxes(image_id: str, class_name: str, image_shape: tuple[int, int]) -> tuple[list[dict], list[dict]]:
+    tar_path = RESULTS.parent / "data" / "VinBigData_ChestXray.tar"
+    with tarfile.open(tar_path, "r") as tf:
+        ann = pd.read_csv(tf.extractfile("VinBigData_ChestXray/annotations/train.csv"))
+        meta = pd.read_csv(tf.extractfile("VinBigData_ChestXray/images_1024/train_meta.csv"))
+
+    row_meta = meta[meta["image_id"] == image_id].iloc[0]
+    sx = image_shape[1] / float(row_meta["dim1"])
+    sy = image_shape[0] / float(row_meta["dim0"])
+    lesion_rows = ann[(ann["image_id"] == image_id) & (ann["class_name"] == class_name)]
+    lesion_boxes = [
+        {
+            "x_min": float(row["x_min"]) * sx,
+            "y_min": float(row["y_min"]) * sy,
+            "x_max": float(row["x_max"]) * sx,
+            "y_max": float(row["y_max"]) * sy,
+            "class_name": class_name,
+        }
+        for _, row in lesion_rows.iterrows()
+    ]
+
+    sample = pd.read_csv(MODELS["I-JEPA-H/300"]["exp2b"] / "class_aligned_per_sample.csv")
+    sample_row = sample[(sample["image_id"] == image_id) & (sample["class_name"] == class_name)].iloc[0]
+    control_sets = json.loads(sample_row["control_boxes_json"])
+    control_boxes = control_sets[0]
+    # Exp2b boxes are defined on the 224x224 evaluation canvas.
+    cx = image_shape[1] / 224.0
+    cy = image_shape[0] / 224.0
+    for box in control_boxes:
+        box["x_min"] = float(box["x_min"]) * cx
+        box["x_max"] = float(box["x_max"]) * cx
+        box["y_min"] = float(box["y_min"]) * cy
+        box["y_max"] = float(box["y_max"]) * cy
+    return lesion_boxes, control_boxes
+
+
+def apply_noise(image: np.ndarray, sigma: float) -> np.ndarray:
+    rng = np.random.default_rng(23)
+    return np.clip(image + rng.normal(0.0, sigma, size=image.shape), 0.0, 1.0)
+
+
+def apply_mask(image: np.ndarray, boxes: list[dict], fill: float = 0.5) -> np.ndarray:
+    masked = image.copy()
+    h, w = masked.shape
+    for box in boxes:
+        x0 = max(0, int(round(box["x_min"])))
+        x1 = min(w, int(round(box["x_max"])))
+        y0 = max(0, int(round(box["y_min"])))
+        y1 = min(h, int(round(box["y_max"])))
+        masked[y0:y1, x0:x1] = fill
+    return masked
+
+
+def draw_boxes(ax: plt.Axes, boxes: list[dict], color: str, label: str) -> None:
+    for i, box in enumerate(boxes):
+        rect = Rectangle(
+            (box["x_min"], box["y_min"]),
+            box["x_max"] - box["x_min"],
+            box["y_max"] - box["y_min"],
+            fill=False,
+            edgecolor=color,
+            linewidth=2.0,
+            label=label if i == 0 else None,
+        )
+        ax.add_patch(rect)
+
+
+def plot_input_perturbation_examples() -> Path:
+    image = load_tar_image(EXAMPLE_IMAGE_ID)
+    lesion_boxes, control_boxes = load_example_boxes(EXAMPLE_IMAGE_ID, EXAMPLE_CLASS, image.shape)
+    panels = [
+        ("Clean", image, "none"),
+        ("Gaussian noise\nsigma=0.05", apply_noise(image, 0.05), "none"),
+        ("Gaussian noise\nsigma=0.10", apply_noise(image, 0.10), "none"),
+        ("Gaussian noise\nsigma=0.20", apply_noise(image, 0.20), "none"),
+        ("Gaussian noise\nsigma=0.30", apply_noise(image, 0.30), "none"),
+        ("Lesion boxes", image, "boxes"),
+        ("Lesion occlusion", apply_mask(image, lesion_boxes), "lesion"),
+        ("Matched control\nocclusion", apply_mask(image, control_boxes), "control"),
+        ("Lesion vs control\nlocations", image, "both"),
+        ("Clean crop context", image, "crop"),
+    ]
+    fig, axes = plt.subplots(2, 5, figsize=(14.4, 8.0))
+    for ax, (title, panel, mode) in zip(axes.ravel(), panels):
+        ax.imshow(panel, cmap="gray", vmin=0, vmax=1)
+        if mode in {"boxes", "lesion", "both"}:
+            draw_boxes(ax, lesion_boxes, "#10B981", "lesion")
+        if mode in {"control", "both"}:
+            draw_boxes(ax, control_boxes, "#F59E0B", "control")
+        if mode == "crop":
+            draw_boxes(ax, lesion_boxes, "#10B981", "lesion")
+            ax.set_xlim(420, 940)
+            ax.set_ylim(850, 80)
+        ax.set_title(title, pad=8)
+        ax.set_xticks([])
+        ax.set_yticks([])
+    axes[1, 3].legend(frameon=True, loc="lower right")
+    fig.suptitle(
+        "Input-level perturbation examples: Gaussian noise and class-aligned occlusion",
+        fontsize=14,
+    )
+    fig.text(
+        0.5,
+        0.02,
+        f"Example image {EXAMPLE_IMAGE_ID}, target class: {EXAMPLE_CLASS}. "
+        "Occlusion uses the neutral-fill masking protocol from Exp2b.",
+        ha="center",
+        fontsize=8,
+        color="#374151",
+    )
+    fig.tight_layout(rect=(0, 0.04, 1, 0.92), h_pad=2.4, w_pad=0.8)
+    return savefig(fig, "fig_input_noise_occlusion_examples.png")
 
 
 def parse_sigma(condition: str) -> float | None:
@@ -423,6 +561,7 @@ def plot_dashboard() -> Path:
 def write_manifest(paths: list[Path]) -> None:
     lines = ["# JEPA300 Report Visualization Manifest", ""]
     captions = {
+        "fig_input_noise_occlusion_examples.png": "Input-level visual examples of Gaussian noise and class-aligned lesion/control occlusion.",
         "fig0_jepa300_fair_dashboard.png": "One-page visual summary of the fair JEPA300-vs-MAE300 rerun.",
         "fig_exp1_jepa300_mae300_noise.png": "Gaussian-noise AUROC, drop, and drift curves for Exp1.",
         "fig_exp2b_jepa300_mae300_lesion.png": "Overall and per-class class-aligned lesion sensitivity for Exp2b.",
@@ -440,6 +579,7 @@ def main() -> None:
     setup_style()
     ensure_out()
     paths = [
+        plot_input_perturbation_examples(),
         plot_dashboard(),
         plot_exp1_noise(),
         plot_exp2b_lesion(),

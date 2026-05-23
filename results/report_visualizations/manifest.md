@@ -1,5 +1,6 @@
 # JEPA300 Report Visualization Manifest
 
+- `results/report_visualizations/fig_input_noise_occlusion_examples.png`: Input-level visual examples of Gaussian noise and class-aligned lesion/control occlusion.
 - `results/report_visualizations/fig0_jepa300_fair_dashboard.png`: One-page visual summary of the fair JEPA300-vs-MAE300 rerun.
 - `results/report_visualizations/fig_exp1_jepa300_mae300_noise.png`: Gaussian-noise AUROC, drop, and drift curves for Exp1.
 - `results/report_visualizations/fig_exp2b_jepa300_mae300_lesion.png`: Overall and per-class class-aligned lesion sensitivity for Exp2b.

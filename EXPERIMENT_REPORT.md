@@ -18,6 +18,10 @@
 
 ### 可视化总览
 
+![Input-level Gaussian-noise and occlusion examples](results/report_visualizations/fig_input_noise_occlusion_examples.png)
+
+> 输入层示例使用同一张 VinBigData 胸片展示 clean、不同高斯噪声强度，以及 Exp2b 使用的 lesion/control neutral-fill 遮盖。绿色框为目标病灶区域，橙色框为等面积 control 区域；这张图用于解释后续鲁棒性和遮盖实验中的扰动到底如何作用在图像上。
+
 ![JEPA300 vs MAE300 fair-comparison dashboard](results/report_visualizations/fig0_jepa300_fair_dashboard.png)
 
 > 这张总览图把本版公平对比压缩为四个关键读数：JEPA300 保留更强的病灶敏感性，但 MAE300 在轻噪声下更平滑；频率实验和探针/微调实验共同说明，JEPA300 的轻噪声失稳主要来自表征层面，而不是单纯的 probe 容量不足。
