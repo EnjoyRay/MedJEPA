@@ -2,7 +2,7 @@
 
 > **目标**：通过对照实验理清 I-JEPA 在胸片中学到了什么，定位优劣势，评估后训练改进策略。
 >
-> **更新日期**：2026-05-19
+> **更新日期**：2026-05-23
 
 ---
 
@@ -15,6 +15,12 @@
 - JEPA300 下游 Exp1–Exp8 已在 UIC 全量完成，汇总文件为 `results/jepa300_fair_summary_full.csv`。
 - MAE300 使用既有完整测试结果：`results/exp*_mae_huge_mimic_300ep_fixedsplit/`。
 - JEPA250 / JEPA250+50 checkpoint 尚未在 UIC 发现；本版不写入主结论。
+
+### 可视化总览
+
+![JEPA300 vs MAE300 fair-comparison dashboard](results/report_visualizations/fig0_jepa300_fair_dashboard.png)
+
+> 这张总览图把本版公平对比压缩为四个关键读数：JEPA300 保留更强的病灶敏感性，但 MAE300 在轻噪声下更平滑；频率实验和探针/微调实验共同说明，JEPA300 的轻噪声失稳主要来自表征层面，而不是单纯的 probe 容量不足。
 
 ## 目录
 
@@ -86,6 +92,8 @@
 
 ### 2.1 Exp1 — 常规扰动鲁棒性
 
+![Exp1 JEPA300 vs MAE300 Gaussian-noise robustness](results/report_visualizations/fig_exp1_jepa300_mae300_noise.png)
+
 **方法**：对测试图像施加 4 类扰动（高斯噪声 ×4 级、高斯模糊 ×3 级、亮度偏移 ×3 级、对比度缩放 ×2 级），测量分类性能下降和嵌入漂移。
 
 **完整高斯噪声曲线**：
@@ -120,6 +128,8 @@
 
 ### 2.2 Exp3 — 频率敏感性定位
 
+![Exp3 JEPA300 vs MAE300 frequency sensitivity](results/report_visualizations/fig_exp3_jepa300_mae300_frequency.png)
+
 **方法**：在频域施加针对性扰动——低通滤波、高频抑制、**带通噪声**——精确定位 I-JEPA 脆弱性对应的频率范围。
 
 **关键结果**（I-JEPA-H/300）：
@@ -143,6 +153,8 @@
 ---
 
 ### 2.3 Exp7 — 探针容量：问题在编码器还是探针？
+
+![Exp7/Exp8 JEPA300 vs MAE300 capacity and partial fine-tuning](results/report_visualizations/fig_exp7_exp8_jepa300_mae300_capacity.png)
 
 > **这是夯实 I-JEPA 噪声脆性本质的关键实验。**
 
@@ -215,6 +227,8 @@ MAE300 MLP:          −0.139          基本持平
 
 ### 2.5 Exp5/Exp6 — 缓解方案
 
+![Exp5 and Exp6 JEPA300 vs MAE300 mitigation summary](results/report_visualizations/fig_exp5_exp6_jepa300_mae300_mitigation.png)
+
 #### Exp5：轻量级预处理
 
 输入图像做去噪预处理（中值滤波 / 高斯平滑）后再编码。σ=0.05 时有轻微帮助，σ=0.10 时无效。预处理是"治标不治本"——噪声已经在编码器内部被放大。
@@ -263,6 +277,8 @@ MAE300 MLP:          −0.139          基本持平
 
 ### 3.1 Exp2b — 分类对齐遮挡实验
 
+![Exp2b JEPA300 vs MAE300 class-aligned lesion sensitivity](results/report_visualizations/fig_exp2b_jepa300_mae300_lesion.png)
+
 **方法**：分析单元为 `(image_id, class_name)` 对。遮挡目标类别的病灶边界框（lesion occlusion），与 5 个匹配的对照遮挡（control，等面积非病灶区域）比较。指标 **Delta Logit Drop = Lesion Drop − Control Drop**。正值表示病灶遮挡比对照遮挡更显著降低了该类别的预测 logit，即编码器确实利用了病灶区域的信息。
 
 **I-JEPA vs MAE 对比**：
@@ -288,6 +304,8 @@ MAE300 MLP:          −0.139          基本持平
 ---
 
 ### 3.2 Exp4 — Token 漂移与显著性分析
+
+![Exp4 JEPA300 vs MAE300 mechanism metrics](results/report_visualizations/fig_exp4_jepa300_mae300_mechanism.png)
 
 **方法**：逐 token（196 个 patch）分析嵌入变化和梯度×激活显著性，测量与病灶边界框的对齐程度。
 
