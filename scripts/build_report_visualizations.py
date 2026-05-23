@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from matplotlib.patches import Rectangle
-from PIL import Image
+from PIL import Image, ImageFilter
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -154,6 +154,19 @@ def apply_noise(image: np.ndarray, sigma: float) -> np.ndarray:
     return np.clip(image + rng.normal(0.0, sigma, size=image.shape), 0.0, 1.0)
 
 
+def apply_blur(image: np.ndarray, sigma: float) -> np.ndarray:
+    pil = Image.fromarray(np.uint8(np.clip(image, 0, 1) * 255))
+    return np.asarray(pil.filter(ImageFilter.GaussianBlur(radius=sigma))).astype(np.float32) / 255.0
+
+
+def apply_brightness(image: np.ndarray, delta: float) -> np.ndarray:
+    return np.clip(image + delta, 0.0, 1.0)
+
+
+def apply_contrast(image: np.ndarray, factor: float) -> np.ndarray:
+    return np.clip((image - 0.5) * factor + 0.5, 0.0, 1.0)
+
+
 def apply_mask(image: np.ndarray, boxes: list[dict], fill: float = 0.5) -> np.ndarray:
     masked = image.copy()
     h, w = masked.shape
@@ -227,6 +240,29 @@ def plot_input_perturbation_examples() -> Path:
     return savefig(fig, "fig_input_noise_occlusion_examples.png")
 
 
+def plot_input_perturbation_grid() -> Path:
+    image = load_tar_image(EXAMPLE_IMAGE_ID)
+    rows = [
+        ("Gaussian noise", [("Clean", image), ("sigma=0.05", apply_noise(image, 0.05)), ("sigma=0.10", apply_noise(image, 0.10)), ("sigma=0.20", apply_noise(image, 0.20)), ("sigma=0.30", apply_noise(image, 0.30))]),
+        ("Gaussian blur", [("Clean", image), ("sigma=0.5", apply_blur(image, 0.5)), ("sigma=1.0", apply_blur(image, 1.0)), ("sigma=2.0", apply_blur(image, 2.0)), ("sigma=3.0", apply_blur(image, 3.0))]),
+        ("Brightness shift", [("Clean", image), ("delta=-0.20", apply_brightness(image, -0.20)), ("delta=-0.10", apply_brightness(image, -0.10)), ("delta=+0.10", apply_brightness(image, 0.10)), ("delta=+0.20", apply_brightness(image, 0.20))]),
+        ("Contrast scaling", [("Clean", image), ("factor=0.50", apply_contrast(image, 0.50)), ("factor=0.75", apply_contrast(image, 0.75)), ("factor=1.50", apply_contrast(image, 1.50)), ("factor=2.00", apply_contrast(image, 2.00))]),
+    ]
+    fig, axes = plt.subplots(4, 5, figsize=(13.8, 12.6))
+    for r, (row_title, variants) in enumerate(rows):
+        for c, (title, panel) in enumerate(variants):
+            ax = axes[r, c]
+            ax.imshow(panel, cmap="gray", vmin=0, vmax=1)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_title(title, fontsize=9)
+            if c == 0:
+                ax.set_ylabel(row_title, fontsize=10)
+    fig.suptitle("Input-level nuisance perturbation grid used by Exp1", fontsize=14)
+    fig.tight_layout(rect=(0, 0, 1, 0.96), h_pad=1.8)
+    return savefig(fig, "fig_input_perturbation_grid.png")
+
+
 def parse_sigma(condition: str) -> float | None:
     if condition == "clean":
         return 0.0
@@ -235,6 +271,21 @@ def parse_sigma(condition: str) -> float | None:
     if condition.startswith("noise_sigma="):
         return float(condition.split("=", 1)[1])
     return None
+
+
+def condition_display(condition: str) -> str:
+    if condition == "clean":
+        return "clean"
+    replacements = {
+        "gaussian_noise/sigma=": "noise ",
+        "gaussian_blur/sigma=": "blur ",
+        "brightness/delta=": "bright ",
+        "contrast/factor=": "contrast ",
+    }
+    for prefix, label in replacements.items():
+        if condition.startswith(prefix):
+            return label + condition.replace(prefix, "")
+    return condition
 
 
 def load_exp1_noise() -> pd.DataFrame:
@@ -259,6 +310,23 @@ def load_exp1_noise() -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True).sort_values(["model", "sigma"])
 
 
+def load_exp1_all() -> pd.DataFrame:
+    frames = []
+    for model, cfg in MODELS.items():
+        robust = pd.read_csv(cfg["exp1"] / "robustness_curve.csv")
+        drift = pd.read_csv(cfg["exp1"] / "embedding_drift.csv")
+        drift = pd.concat(
+            [pd.DataFrame([{"condition": "clean", "cosine_drift": 0.0, "l2_drift": 0.0}]), drift],
+            ignore_index=True,
+        )
+        df = robust.merge(drift, on="condition", how="left")
+        df["model"] = model
+        df["short"] = cfg["short"]
+        df["display"] = df["condition"].map(condition_display)
+        frames.append(df)
+    return pd.concat(frames, ignore_index=True)
+
+
 def plot_exp1_noise() -> Path:
     df = load_exp1_noise()
     fig, axes = plt.subplots(1, 3, figsize=(12.2, 3.6), sharex=True)
@@ -281,6 +349,53 @@ def plot_exp1_noise() -> Path:
     fig.suptitle("Exp1: JEPA300 has a light-noise failure threshold; MAE300 is smoother at sigma=0.05")
     fig.tight_layout(rect=(0, 0, 1, 0.9))
     return savefig(fig, "fig_exp1_jepa300_mae300_noise.png")
+
+
+def plot_exp1_full_heatmap() -> Path:
+    df = load_exp1_all()
+    order = [
+        "clean",
+        "noise 0.05",
+        "noise 0.10",
+        "noise 0.20",
+        "noise 0.30",
+        "blur 0.5",
+        "blur 1.0",
+        "blur 2.0",
+        "blur 3.0",
+        "bright -0.2",
+        "bright -0.1",
+        "bright +0.1",
+        "bright +0.2",
+        "contrast 0.5",
+        "contrast 1.5",
+    ]
+    fig, axes = plt.subplots(3, 1, figsize=(13.0, 6.8), sharex=True)
+    metrics = [
+        ("macro_auroc", "Macro AUROC", "YlGnBu", None),
+        ("auroc_drop", "AUROC drop", "OrRd", None),
+        ("cosine_drift", "Cosine drift", "mako_r", None),
+    ]
+    for ax, (metric, title, cmap, bounds) in zip(axes, metrics):
+        pivot = df.pivot(index="short", columns="display", values=metric).reindex(columns=order)
+        sns.heatmap(
+            pivot,
+            ax=ax,
+            cmap=cmap,
+            annot=True,
+            fmt=".2f",
+            linewidths=0.4,
+            cbar_kws={"label": title},
+            vmin=None if bounds is None else bounds[0],
+            vmax=None if bounds is None else bounds[1],
+        )
+        ax.set_title(title)
+        ax.set_xlabel("")
+        ax.set_ylabel("")
+    axes[-1].tick_params(axis="x", rotation=35)
+    fig.suptitle("Exp1 full perturbation matrix: AUROC, drop, and representation drift")
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
+    return savefig(fig, "fig_exp1_full_perturbation_heatmap.png")
 
 
 def load_exp2b_overall() -> pd.DataFrame:
@@ -346,6 +461,77 @@ def plot_exp2b_lesion() -> Path:
     return savefig(fig, "fig_exp2b_jepa300_mae300_lesion.png")
 
 
+def plot_exp2b_distribution() -> Path:
+    frames = []
+    for model, cfg in MODELS.items():
+        df = pd.read_csv(cfg["exp2b"] / "class_aligned_per_sample.csv")
+        df["model"] = model
+        df["short"] = cfg["short"]
+        frames.append(df)
+    df = pd.concat(frames, ignore_index=True)
+    top_classes = (
+        df[df["short"] == "JEPA300"]
+        .groupby("class_name")["delta_logit_drop"]
+        .mean()
+        .sort_values(ascending=False)
+        .head(8)
+        .index
+        .tolist()
+    )
+    fig, axes = plt.subplots(1, 3, figsize=(14.0, 4.4))
+    sns.histplot(
+        data=df,
+        x="delta_logit_drop",
+        hue="short",
+        bins=60,
+        stat="density",
+        common_norm=False,
+        element="step",
+        fill=False,
+        palette=[MODELS[m]["color"] for m in MODELS],
+        ax=axes[0],
+    )
+    axes[0].axvline(0, color="#111827", linewidth=1)
+    axes[0].set_title("Per-sample delta distribution")
+    axes[0].set_xlabel("Delta logit drop")
+
+    sns.scatterplot(
+        data=df.sample(min(len(df), 3000), random_state=7),
+        x="bbox_area_frac",
+        y="delta_logit_drop",
+        hue="short",
+        alpha=0.35,
+        s=14,
+        palette=[MODELS[m]["color"] for m in MODELS],
+        ax=axes[1],
+    )
+    axes[1].axhline(0, color="#111827", linewidth=1)
+    axes[1].set_xscale("log")
+    axes[1].set_title("Effect vs bbox area")
+    axes[1].set_xlabel("BBox area fraction (log)")
+    axes[1].legend(frameon=False, title="")
+
+    class_df = df[df["class_name"].isin(top_classes)].copy()
+    class_df["class_name"] = pd.Categorical(class_df["class_name"], categories=top_classes, ordered=True)
+    sns.boxplot(
+        data=class_df,
+        x="delta_logit_drop",
+        y="class_name",
+        hue="short",
+        palette=[MODELS[m]["color"] for m in MODELS],
+        showfliers=False,
+        ax=axes[2],
+    )
+    axes[2].axvline(0, color="#111827", linewidth=1)
+    axes[2].set_title("Top JEPA300 classes")
+    axes[2].set_xlabel("Delta logit drop")
+    axes[2].set_ylabel("")
+    axes[2].legend(frameon=False, title="", loc="lower right")
+    fig.suptitle("Exp2b per-sample lesion-control effects reveal distribution shape, not only means")
+    fig.tight_layout(rect=(0, 0, 1, 0.9))
+    return savefig(fig, "fig_exp2b_per_sample_distribution.png")
+
+
 def condition_label(condition: str) -> str:
     mapping = {
         "clean": "Clean",
@@ -399,6 +585,56 @@ def plot_exp3_frequency() -> Path:
     return savefig(fig, "fig_exp3_jepa300_mae300_frequency.png")
 
 
+def plot_exp3_per_class_heatmap() -> Path:
+    rows = []
+    class_cols = None
+    for model, cfg in MODELS.items():
+        df = pd.read_csv(cfg["exp3"] / "frequency_sensitivity_summary.csv")
+        row = df[df["condition"] == "band_corrupt/band=0.20-0.45"].iloc[0]
+        if class_cols is None:
+            class_cols = [
+                c
+                for c in df.columns
+                if c.startswith("auroc_") and not c.endswith("_std") and c not in {"auroc_drop"}
+            ]
+        for col in class_cols:
+            label = col.replace("auroc_", "")
+            rows.append({"class": label, "short": cfg["short"], "macro_auroc": float(row[col])})
+    data = pd.DataFrame(rows)
+    pivot = data.pivot(index="class", columns="short", values="macro_auroc")
+    pivot["JEPA-MAE"] = pivot["JEPA300"] - pivot["MAE300"]
+    pivot = pivot.sort_values("JEPA-MAE")
+    fig, axes = plt.subplots(1, 2, figsize=(10.8, 7.2), gridspec_kw={"width_ratios": [1.0, 0.55]})
+    sns.heatmap(
+        pivot[["JEPA300", "MAE300"]],
+        annot=True,
+        fmt=".2f",
+        cmap="YlGnBu",
+        linewidths=0.4,
+        cbar_kws={"label": "AUROC under band 0.20-0.45"},
+        ax=axes[0],
+    )
+    axes[0].set_title("Per-class AUROC under mid-frequency corruption")
+    axes[0].set_xlabel("")
+    axes[0].set_ylabel("")
+    sns.heatmap(
+        pivot[["JEPA-MAE"]],
+        annot=True,
+        fmt=".2f",
+        cmap="vlag",
+        center=0,
+        linewidths=0.4,
+        cbar_kws={"label": "JEPA300 - MAE300"},
+        ax=axes[1],
+    )
+    axes[1].set_title("Gap")
+    axes[1].set_xlabel("")
+    axes[1].set_ylabel("")
+    fig.suptitle("Exp3 class-level frequency sensitivity at the main vulnerable band")
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
+    return savefig(fig, "fig_exp3_per_class_frequency_heatmap.png")
+
+
 def plot_exp4_mechanism() -> Path:
     frames = []
     for model, cfg in MODELS.items():
@@ -431,6 +667,66 @@ def plot_exp4_mechanism() -> Path:
     fig.suptitle("Exp4: mechanism signals separate lesion localization from nuisance drift")
     fig.tight_layout(rect=(0, 0, 1, 0.94))
     return savefig(fig, "fig_exp4_jepa300_mae300_mechanism.png")
+
+
+def plot_exp4_per_sample_scatter() -> Path:
+    frames = []
+    for model, cfg in MODELS.items():
+        df = pd.read_csv(cfg["exp4"] / "mechanism_per_sample.csv")
+        df["model"] = model
+        df["short"] = cfg["short"]
+        frames.append(df)
+    df = pd.concat(frames, ignore_index=True)
+    fig, axes = plt.subplots(1, 3, figsize=(14.0, 4.2))
+    palette = [MODELS[m]["color"] for m in MODELS]
+
+    sns.scatterplot(
+        data=df,
+        x="bbox_token_frac",
+        y="inside_saliency_ratio",
+        hue="short",
+        style="disease_group",
+        alpha=0.45,
+        s=22,
+        palette=palette,
+        ax=axes[0],
+    )
+    axes[0].set_title("Saliency vs lesion token area")
+    axes[0].set_xlabel("BBox token fraction")
+    axes[0].set_ylabel("Inside saliency ratio")
+    axes[0].legend(frameon=False, fontsize=7)
+
+    sns.scatterplot(
+        data=df,
+        x="noise_drift_mean",
+        y="lesion_drift_mean",
+        hue="short",
+        alpha=0.45,
+        s=22,
+        palette=palette,
+        ax=axes[1],
+    )
+    axes[1].set_title("Noise drift vs lesion drift")
+    axes[1].set_xlabel("Noise drift")
+    axes[1].set_ylabel("Lesion drift")
+    axes[1].legend(frameon=False, title="")
+
+    sns.violinplot(
+        data=df,
+        x="short",
+        y="noise_drift_mean",
+        hue="disease_group",
+        split=True,
+        inner="quartile",
+        ax=axes[2],
+    )
+    axes[2].set_title("Noise drift distribution")
+    axes[2].set_xlabel("")
+    axes[2].set_ylabel("Noise drift")
+    axes[2].legend(frameon=False, title="")
+    fig.suptitle("Exp4 per-sample mechanism diagnostics")
+    fig.tight_layout(rect=(0, 0, 1, 0.9))
+    return savefig(fig, "fig_exp4_per_sample_mechanism_scatter.png")
 
 
 def plot_exp5_exp6_mitigation() -> Path:
@@ -484,6 +780,57 @@ def plot_exp5_exp6_mitigation() -> Path:
     fig.suptitle("Exp5/Exp6: preprocessing helps lightly; NCA gives the clearest robustness gain")
     fig.tight_layout(rect=(0, 0, 1, 0.9))
     return savefig(fig, "fig_exp5_exp6_jepa300_mae300_mitigation.png")
+
+
+def plot_exp6_training_details() -> Path:
+    logs = []
+    results = []
+    for model, cfg in MODELS.items():
+        log = pd.read_csv(cfg["exp6"] / "nca_training_log.csv")
+        log["model"] = model
+        log["short"] = cfg["short"]
+        logs.append(log)
+        res = pd.read_csv(cfg["exp6"] / "nca_results.csv")
+        res["model"] = model
+        res["short"] = cfg["short"]
+        results.append(res)
+    logs = pd.concat(logs, ignore_index=True)
+    results = pd.concat(results, ignore_index=True)
+    fig, axes = plt.subplots(1, 3, figsize=(14.0, 4.1))
+    palette = [MODELS[m]["color"] for m in MODELS]
+
+    sns.lineplot(data=logs, x="epoch", y="loss", hue="short", marker="o", palette=palette, ax=axes[0])
+    axes[0].set_title("NCA training loss")
+    axes[0].set_ylabel("Loss")
+    axes[0].legend(frameon=False, title="")
+
+    component = logs.melt(
+        id_vars=["epoch", "short"],
+        value_vars=["clean_bce", "aug_bce", "pred_cons", "repr_cons"],
+        var_name="component",
+        value_name="value",
+    )
+    sns.lineplot(data=component[component["short"] == "JEPA300"], x="epoch", y="value", hue="component", ax=axes[1])
+    axes[1].set_title("JEPA300 NCA loss components")
+    axes[1].set_ylabel("Component value")
+    axes[1].legend(frameon=False, title="")
+
+    drift = results[results["condition"].isin(["noise_sigma=0.05", "noise_sigma=0.10"])].melt(
+        id_vars=["short", "condition"],
+        value_vars=["raw_cosine_drift", "adapter_cosine_drift"],
+        var_name="space",
+        value_name="drift",
+    )
+    drift["space"] = drift["space"].map({"raw_cosine_drift": "Raw encoder", "adapter_cosine_drift": "NCA output"})
+    sns.barplot(data=drift, x="condition", y="drift", hue="space", ax=axes[2])
+    axes[2].set_title("Raw vs adapted drift")
+    axes[2].set_xlabel("")
+    axes[2].set_ylabel("Cosine drift")
+    axes[2].tick_params(axis="x", rotation=18)
+    axes[2].legend(frameon=False, title="")
+    fig.suptitle("Exp6 NCA training and drift compression details")
+    fig.tight_layout(rect=(0, 0, 1, 0.9))
+    return savefig(fig, "fig_exp6_nca_training_details.png")
 
 
 def load_method_noise() -> pd.DataFrame:
@@ -562,12 +909,18 @@ def write_manifest(paths: list[Path]) -> None:
     lines = ["# JEPA300 Report Visualization Manifest", ""]
     captions = {
         "fig_input_noise_occlusion_examples.png": "Input-level visual examples of Gaussian noise and class-aligned lesion/control occlusion.",
+        "fig_input_perturbation_grid.png": "Input-level examples for the full Exp1 nuisance perturbation family.",
         "fig0_jepa300_fair_dashboard.png": "One-page visual summary of the fair JEPA300-vs-MAE300 rerun.",
         "fig_exp1_jepa300_mae300_noise.png": "Gaussian-noise AUROC, drop, and drift curves for Exp1.",
+        "fig_exp1_full_perturbation_heatmap.png": "Full Exp1 perturbation matrix covering noise, blur, brightness, and contrast.",
         "fig_exp2b_jepa300_mae300_lesion.png": "Overall and per-class class-aligned lesion sensitivity for Exp2b.",
+        "fig_exp2b_per_sample_distribution.png": "Per-sample Exp2b lesion-control delta distributions and area/class breakdowns.",
         "fig_exp3_jepa300_mae300_frequency.png": "Frequency-domain vulnerability comparison for Exp3.",
+        "fig_exp3_per_class_frequency_heatmap.png": "Per-class AUROC heatmap under the Exp3 mid-frequency corruption band.",
         "fig_exp4_jepa300_mae300_mechanism.png": "Mechanism metrics by disease group for Exp4.",
+        "fig_exp4_per_sample_mechanism_scatter.png": "Per-sample Exp4 mechanism scatter plots.",
         "fig_exp5_exp6_jepa300_mae300_mitigation.png": "Preprocessing and NCA mitigation visual summary for Exp5/Exp6.",
+        "fig_exp6_nca_training_details.png": "NCA loss curves and raw-vs-adapted drift compression details.",
         "fig_exp7_exp8_jepa300_mae300_capacity.png": "Linear, MLP, and partial-finetuning Gaussian-noise curves for Exp7/Exp8.",
     }
     for path in paths:
@@ -580,12 +933,18 @@ def main() -> None:
     ensure_out()
     paths = [
         plot_input_perturbation_examples(),
+        plot_input_perturbation_grid(),
         plot_dashboard(),
         plot_exp1_noise(),
+        plot_exp1_full_heatmap(),
         plot_exp2b_lesion(),
+        plot_exp2b_distribution(),
         plot_exp3_frequency(),
+        plot_exp3_per_class_heatmap(),
         plot_exp4_mechanism(),
+        plot_exp4_per_sample_scatter(),
         plot_exp5_exp6_mitigation(),
+        plot_exp6_training_details(),
         plot_exp7_exp8_capacity(),
     ]
     write_manifest(paths)
