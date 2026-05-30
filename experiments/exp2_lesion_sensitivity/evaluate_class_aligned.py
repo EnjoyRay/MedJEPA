@@ -113,6 +113,12 @@ def _sign_flip_pvalue(values: np.ndarray, n_perm: int = 20000, seed: int = 42) -
     return float((np.sum(null >= observed) + 1) / (n_perm + 1))
 
 
+def _skipped_summary(skipped: List[Dict[str, Any]]) -> 'pd.DataFrame':
+    """Build a DataFrame summarising records skipped due to no valid control."""
+    import pandas as pd
+    return pd.DataFrame(skipped)
+
+
 def _cosine_distance(a: torch.Tensor, b: torch.Tensor) -> np.ndarray:
     a = torch.nn.functional.normalize(a.float(), dim=-1)
     b = torch.nn.functional.normalize(b.float(), dim=-1)
@@ -185,6 +191,7 @@ def evaluate_class_aligned_sensitivity(
     encoder_batch_size: int = 16,
 ) -> Dict[str, Any]:
     rows: List[Dict[str, Any]] = []
+    skipped_records: List[Dict[str, Any]] = []
     n_images = 0
     n_images_with_boxes = 0
     n_fallback_controls = 0
@@ -225,6 +232,14 @@ def evaluate_class_aligned_sensitivity(
             )
             if len(controls) < num_controls:
                 n_skipped_no_valid_control += 1
+                skipped_records.append({
+                    'image_id': rec['image_id'],
+                    'class_name': rec['class_name'],
+                    'box_count': rec['box_count'],
+                    'bbox_area_frac': rec['bbox_area_frac'],
+                    'total_boxes_in_image': len(rec['all_boxes']),
+                    'disease_group': rec['disease_group'],
+                })
                 continue
 
             original_tensors.append(images[rec['image_pos']])
@@ -323,13 +338,26 @@ def evaluate_class_aligned_sensitivity(
                 flush=True,
             )
 
+    skipped_summary = {}
+    if skipped_records:
+        skipped_df = _skipped_summary(skipped_records)
+        skipped_summary = {
+            'n_skipped': len(skipped_records),
+            'skipped_mean_box_count': float(skipped_df['box_count'].mean()) if len(skipped_df) else 0.0,
+            'skipped_mean_bbox_area_frac': float(skipped_df['bbox_area_frac'].mean()) if len(skipped_df) else 0.0,
+            'skipped_mean_total_boxes': float(skipped_df['total_boxes_in_image'].mean()) if len(skipped_df) else 0.0,
+            'skipped_disease_groups': skipped_df['disease_group'].value_counts().to_dict() if len(skipped_df) else {},
+        }
+
     return {
         'rows': rows,
+        'skipped_records': skipped_records,
         'n_images': n_images,
         'n_images_with_boxes': n_images_with_boxes,
         'n_class_aligned_samples': len(rows),
         'n_fallback_controls': n_fallback_controls,
         'n_skipped_no_valid_control': n_skipped_no_valid_control,
+        'skipped_summary': skipped_summary,
         'num_controls': num_controls,
         'fill_mode': fill_mode,
         'control_strategy': control_strategy,
@@ -405,6 +433,15 @@ def save_class_aligned_results(results: Dict[str, Any], output_dir: str, seed: i
     write_summary('class_aligned_overall.csv', _summary_rows(rows, None, seed=seed))
     write_summary('class_aligned_summary_by_class.csv', _summary_rows(rows, 'class_name', seed=seed))
     write_summary('class_aligned_summary_by_group.csv', _summary_rows(rows, 'disease_group', seed=seed))
+
+    if results.get('skipped_summary'):
+        with open(os.path.join(output_dir, 'class_aligned_skipped_summary.json'), 'w', encoding='utf-8') as f:
+            json.dump(results['skipped_summary'], f, indent=2)
+        if 'skipped_records' in results:
+            skipped_path = os.path.join(output_dir, 'class_aligned_skipped_per_sample.csv')
+            skipped_df = _skipped_summary(results['skipped_records'])
+            skipped_df.to_csv(skipped_path, index=False)
+            print(f"Saved skipped records → {skipped_path} (n={len(skipped_df)})")
 
     meta = {k: v for k, v in results.items() if k != 'rows'}
     with open(os.path.join(output_dir, 'class_aligned_meta.json'), 'w', encoding='utf-8') as f:

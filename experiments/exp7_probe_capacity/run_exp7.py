@@ -24,7 +24,7 @@ from shared.vindr_dataset import build_vindr_loader
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Exp7: MLP probe capacity")
-    parser.add_argument("--model", required=True, choices=["ijepa", "mae"])
+    parser.add_argument("--model", required=True, choices=["ijepa", "mae", "moco"])
     parser.add_argument("--weights", required=True)
     parser.add_argument("--data_dir", required=True)
     parser.add_argument("--output_dir", required=True)

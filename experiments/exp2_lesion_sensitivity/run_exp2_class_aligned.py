@@ -30,7 +30,7 @@ from run_exp2 import extract_all_embeddings
 
 def get_args():
     parser = argparse.ArgumentParser(description='Exp2b: class-aligned lesion sensitivity')
-    parser.add_argument('--model', required=True, choices=['ijepa', 'mae'])
+    parser.add_argument('--model', required=True, choices=['ijepa', 'mae', 'moco'])
     parser.add_argument('--weights', required=True)
     parser.add_argument('--img_size', default=224, type=int)
     parser.add_argument('--in_chans', default=1, type=int)

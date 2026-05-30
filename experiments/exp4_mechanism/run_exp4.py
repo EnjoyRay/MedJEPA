@@ -44,7 +44,7 @@ LOCALIZED = {
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Exp4: token drift and saliency-bbox alignment")
-    parser.add_argument("--model", required=True, choices=["ijepa", "mae"])
+    parser.add_argument("--model", required=True, choices=["ijepa", "mae", "moco"])
     parser.add_argument("--weights", required=True)
     parser.add_argument("--data_dir", required=True)
     parser.add_argument("--probe_path", required=True)
@@ -95,6 +95,7 @@ def _saliency_from_tokens(encoder, probe: LinearProbe, image: torch.Tensor, clas
     encoder.zero_grad(set_to_none=True)
     probe.head.zero_grad(set_to_none=True)
     tokens = encoder.forward_tokens(image)
+    tokens.grad = None  # defensive: prevent accumulation across calls
     tokens.retain_grad()
     pooled = tokens.mean(dim=1)
     logit = probe.logits_from_tensor(pooled)[0, class_idx]
@@ -269,7 +270,8 @@ def main() -> None:
                     )
                     saved_cases += 1
                 processed += 1
-                break
+                if processed >= args.max_samples:
+                    break
         if processed >= args.max_samples:
             break
 

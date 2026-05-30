@@ -27,7 +27,7 @@ NOISE_LEVELS = [0.05, 0.10, 0.20, 0.30]
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Exp8: partial fine-tuning")
-    parser.add_argument("--model", required=True, choices=["ijepa", "mae"])
+    parser.add_argument("--model", required=True, choices=["ijepa", "mae", "moco"])
     parser.add_argument("--weights", required=True)
     parser.add_argument("--data_dir", required=True)
     parser.add_argument("--output_dir", required=True)

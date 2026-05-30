@@ -15,9 +15,13 @@ results/visualizations/
 output_dir/
 test_output/
 .tmp/
+*.tar.gz
 
 # Claude 配置
 .claude/
+
+# 其他
+zhaoyi_review/
 
 # Python
 __pycache__/

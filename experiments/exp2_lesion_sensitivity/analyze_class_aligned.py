@@ -152,6 +152,19 @@ def _plot_area(df: pd.DataFrame, area_summary: pd.DataFrame, output_dir: Path, m
     return path
 
 
+def _fdr_correct(pvalues: np.ndarray, method: str = 'bh') -> np.ndarray:
+    """Benjamini-Hochberg FDR correction. Returns q-values (adjusted p-values)."""
+    from statsmodels.stats.multitest import multipletests
+    if pvalues.size == 0:
+        return pvalues
+    mask = np.isfinite(pvalues)
+    result = np.full_like(pvalues, np.nan, dtype=float)
+    if mask.sum() > 0:
+        _, qvals, _, _ = multipletests(pvalues[mask], method=f'fdr_{method}')
+        result[mask] = qvals
+    return result
+
+
 def _write_case_table(df: pd.DataFrame, output_dir: Path) -> None:
     picks = []
     specs = [
@@ -179,6 +192,12 @@ def main():
     per_group = _read_required(exp2_dir / 'class_aligned_summary_by_group.csv')
     overall = _read_required(exp2_dir / 'class_aligned_overall.csv')
 
+    # FDR correction for per-class delta_logit p-values
+    if 'delta_logit_pvalue' in per_class.columns:
+        pvals = per_class['delta_logit_pvalue'].to_numpy(dtype=float)
+        per_class['delta_logit_qvalue'] = _fdr_correct(pvals, method='bh')
+        per_class.to_csv(output_dir / 'class_aligned_summary_by_class.csv', index=False)
+
     per_sample = _area_bins(per_sample)
     area_summary = _summary(per_sample, 'bbox_area_bin')
     area_summary.to_csv(output_dir / 'class_aligned_summary_by_area_bin.csv', index=False)
@@ -202,6 +221,14 @@ def main():
             f"[{row['delta_logit_ci95_low']:.4f}, {row['delta_logit_ci95_high']:.4f}], "
             f"p={row['delta_logit_pvalue']:.4g}\n"
         )
+        # Report FDR-corrected per-class results
+        if 'delta_logit_qvalue' in per_class.columns:
+            n_sig_fdr = int((per_class['delta_logit_qvalue'] < 0.05).sum())
+            f.write(f"- Per-class with FDR q < 0.05: {n_sig_fdr}/{len(per_class)}\n")
+            sig_classes = per_class[per_class['delta_logit_qvalue'] < 0.05]
+            if len(sig_classes) > 0:
+                for _, r in sig_classes.iterrows():
+                    f.write(f"  - {r['group']}: q={r['delta_logit_qvalue']:.4f}\n")
         f.write(f"- Figures: {', '.join(p.name for p in paths)}\n")
 
     print(f"Class-aligned analysis written to {output_dir}")

@@ -211,6 +211,110 @@ class _TimmViTEncoder(nn.Module):
 
 
 # ---------------------------------------------------------------------------
+# MoCo v3 encoder wrapper
+# ---------------------------------------------------------------------------
+
+def _build_moco_encoder(weights_path: str, device: torch.device) -> nn.Module:
+    """Load a MoCo v3 ViT encoder from a checkpoint.
+
+    Uses the MoCo project's own vits.py (at ../../../medical-i-jepa/moco/)
+    to build a compatible ViT, so no timm/torchvision dependency is needed.
+    """
+    import sys, os
+
+    # Ensure timm is available before importing vits.
+    # vits.py depends on timm, which is only in the moco_v3 env.
+    # Copy timm to a writable location and add to sys.path FIRST.
+    timm_src = os.path.join(os.path.dirname(__file__), '..', '..', '..',
+                            'miniconda3', 'envs', 'moco_v3', 'lib',
+                            'python3.10', 'site-packages', 'timm')
+    timm_dst = os.path.join(os.path.dirname(__file__), '..', '..',
+                            '.timm_package', 'timm')
+    timm_parent = os.path.dirname(timm_dst)
+    if os.path.isdir(timm_src) and not os.path.isdir(timm_dst):
+        import shutil
+        os.makedirs(timm_parent, exist_ok=True)
+        shutil.copytree(timm_src, timm_dst)
+        print(f'[MoCo] Copied timm to {timm_dst}')
+    if os.path.isdir(timm_dst) and timm_parent not in sys.path:
+        sys.path.insert(0, timm_parent)
+
+    # Now safe to import vits (timm is available)
+    moco_root = os.path.join(os.path.dirname(__file__), '..', '..', '..',
+                             'zhaoyi', 'medical-i-jepa', 'moco')
+    if moco_root not in sys.path:
+        sys.path.insert(0, moco_root)
+
+    from vits import vit_base, vit_small  # type: ignore
+
+    checkpoint = torch.load(weights_path, map_location='cpu', weights_only=False)
+
+    # Extract encoder state from MoCo checkpoint
+    if 'state_dict' in checkpoint:
+        raw = checkpoint['state_dict']
+        state = {}
+        prefix = 'module.base_encoder.'
+        for k, v in raw.items():
+            if k.startswith(prefix) and not k.startswith(prefix + 'head.'):
+                state[k[len(prefix):]] = v
+        print(f'[MoCo] Extracted {len(state)} base_encoder keys from raw checkpoint')
+    elif 'model' in checkpoint:
+        state = checkpoint['model']
+    else:
+        state = checkpoint
+
+    # Detect architecture from embed_dim
+    pos_embed_key = [k for k in state if 'pos_embed' in k]
+    embed_dim = state[pos_embed_key[0]].shape[-1] if pos_embed_key else 768
+
+    if embed_dim == 768:
+        model = vit_base(num_classes=0)
+        arch = 'ViT-Base/16'
+    else:
+        model = vit_small(num_classes=0)
+        arch = 'ViT-Small/16'
+
+    msg = model.load_state_dict(state, strict=False)
+    print(f'[MoCo] Loaded {arch} from {weights_path}: {msg}')
+
+    encoder = _MoCoEncoderWrapper(model)
+    encoder.eval().to(device)
+    return encoder
+
+
+class _MoCoEncoderWrapper(nn.Module):
+    """Wraps a MoCo ViT (from vits.py) and exposes mean-pooled patch embeddings.
+    Handles 1→3 channel replication for grayscale input.
+
+    Uses the timm ViT internals directly to extract patch tokens
+    (timm's forward_features returns CLS-only, we need all tokens).
+    """
+
+    def __init__(self, vit: nn.Module):
+        super().__init__()
+        self.vit = vit
+
+    def forward_tokens(self, x: torch.Tensor) -> torch.Tensor:
+        if x.shape[1] == 1:
+            x = x.repeat(1, 3, 1, 1)
+        # Manual forward to get all tokens (not just CLS)
+        x = self.vit.patch_embed(x)
+        cls_token = self.vit.cls_token.expand(x.shape[0], -1, -1)
+        x = torch.cat((cls_token, x), dim=1)
+        x = self.vit.pos_drop(x + self.vit.pos_embed)
+        x = self.vit.blocks(x)
+        x = self.vit.norm(x)
+        # Return all tokens: CLS at position 0, then patch tokens
+        return x
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        tokens = self.forward_tokens(x)
+        if tokens.dim() == 3:
+            return tokens.mean(dim=1)
+        return tokens
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -219,7 +323,7 @@ def build_encoder(model_type: str, weights_path: str, device: torch.device) -> n
     Build a frozen encoder.
 
     Args:
-        model_type: 'ijepa' or 'mae'
+        model_type: 'ijepa', 'mae', or 'moco'
         weights_path: path to pretrained checkpoint
         device: torch device
 
@@ -231,5 +335,7 @@ def build_encoder(model_type: str, weights_path: str, device: torch.device) -> n
         return _build_mae_encoder(weights_path, device)
     elif model_type in ('ijepa', 'i-jepa'):
         return _build_ijepa_encoder(weights_path, device)
+    elif model_type == 'moco':
+        return _build_moco_encoder(weights_path, device)
     else:
-        raise ValueError(f"Unknown model_type '{model_type}'. Choose 'ijepa' or 'mae'.")
+        raise ValueError(f"Unknown model_type '{model_type}'. Choose 'ijepa', 'mae', or 'moco'.")

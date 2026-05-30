@@ -60,7 +60,7 @@ def get_args():
     parser = argparse.ArgumentParser(description='Exp2: Lesion Region Sensitivity')
 
     # Model
-    parser.add_argument('--model', required=True, choices=['ijepa', 'mae'])
+    parser.add_argument('--model', required=True, choices=['ijepa', 'mae', 'moco'])
     parser.add_argument('--weights', required=True,
                         help='Path to pretrained encoder checkpoint')
     parser.add_argument('--img_size', default=224, type=int)

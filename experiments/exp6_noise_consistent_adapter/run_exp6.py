@@ -51,12 +51,17 @@ ABLATIONS = {
         "repr_weight": 0.2,
         "augmentations": ["noise_005", "noise_010", "brightness_neg", "brightness_pos", "contrast_low", "contrast_high"],
     },
+    "bidirectional": {
+        "pred_weight": 0.5,
+        "repr_weight": 0.2,
+        "augmentations": ["noise_005", "noise_010", "brightness_neg", "brightness_pos", "contrast_low", "contrast_high"],
+    },
 }
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Exp6: Noise-Consistent Adapter")
-    parser.add_argument("--model", required=True, choices=["ijepa", "mae"])
+    parser.add_argument("--model", required=True, choices=["ijepa", "mae", "moco"])
     parser.add_argument("--weights", required=True)
     parser.add_argument("--data_dir", required=True)
     parser.add_argument("--output_dir", required=True)
@@ -179,6 +184,14 @@ def train_adapter(
             aug_log_prob = F.logsigmoid(aug_logits)
             aug_log_one_minus = F.logsigmoid(-aug_logits)
             pred_cons = -(clean_prob * aug_log_prob + (1.0 - clean_prob) * aug_log_one_minus).mean()
+
+            if ablation_name == "bidirectional":
+                aug_prob = torch.sigmoid(aug_logits.detach())
+                clean_log_prob = F.logsigmoid(clean_logits)
+                clean_log_one_minus = F.logsigmoid(-clean_logits)
+                pred_cons_rev = -(aug_prob * clean_log_prob + (1.0 - aug_prob) * clean_log_one_minus).mean()
+                pred_cons = 0.5 * (pred_cons + pred_cons_rev)
+
             repr_cons = 1.0 - F.cosine_similarity(clean_z, aug_z, dim=-1).mean()
             loss = (
                 args.clean_weight * clean_bce

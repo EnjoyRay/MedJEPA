@@ -44,7 +44,7 @@ def get_args():
     parser = argparse.ArgumentParser(description='Exp1: Robustness to Nuisance Perturbations')
 
     # Model
-    parser.add_argument('--model', required=True, choices=['ijepa', 'mae'],
+    parser.add_argument('--model', required=True, choices=['ijepa', 'mae', 'moco'],
                         help='Which encoder to evaluate')
     parser.add_argument('--weights', required=True,
                         help='Path to pretrained encoder checkpoint')
